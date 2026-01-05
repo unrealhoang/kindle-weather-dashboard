@@ -23,8 +23,8 @@ use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-const DEFAULT_KINDLE_WIDTH: u32 = 758;
-const DEFAULT_KINDLE_HEIGHT: u32 = 1024;
+const DEFAULT_KINDLE_WIDTH: u32 = 1072;
+const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
 
 #[derive(Clone)]
 struct AppState {
