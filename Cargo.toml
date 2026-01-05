@@ -24,5 +24,11 @@ blitz-html = { git = "https://github.com/DioxusLabs/blitz", default-features = f
 blitz-paint = { git = "https://github.com/DioxusLabs/blitz", default-features = false }
 blitz-dom = { git = "https://github.com/DioxusLabs/blitz", default-features = false }
 blitz-traits = { git = "https://github.com/DioxusLabs/blitz", default-features = false }
+blitz-net = { git = "https://github.com/DioxusLabs/blitz", default-features = false }
 anyrender = { git = "https://github.com/DioxusLabs/anyrender", default-features = false }
 anyrender_vello_cpu = { git = "https://github.com/DioxusLabs/anyrender", default-features = false }
+peniko = "0.5"
+
+[patch.crates-io]
+anyrender = { git = "https://github.com/DioxusLabs/anyrender" }
+anyrender_vello_cpu = { git = "https://github.com/DioxusLabs/anyrender" }
