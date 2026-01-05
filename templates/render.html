@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Kindle Weather Dashboard</title>
+    <style>
+        :root {
+            font-family: "Helvetica", "Arial", sans-serif;
+            color: #000;
+            background: #fff;
+        }
+        body {
+            margin: 0;
+            padding: 24px 32px;
+        }
+        .headline {
+            font-size: 28px;
+            margin-bottom: 12px;
+            letter-spacing: 0.6px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 16px;
+            font-size: 20px;
+        }
+        .meta {
+            margin-top: 18px;
+            font-size: 18px;
+        }
+        .hint {
+            margin-top: 12px;
+            font-size: 16px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border: 1px solid #000;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="headline">Kindle Weather Dashboard</div>
+    <div class="grid">
+        <div><strong>Latitude</strong></div><div>{{ coords.latitude | format(f="{:.4}") }}</div>
+        <div><strong>Longitude</strong></div><div>{{ coords.longitude | format(f="{:.4}") }}</div>
+        <div><strong>Temperature</strong></div><div>{{ snapshot.temperature_c | format(f="{:.1}") }}°C</div>
+        <div><strong>Feels Like</strong></div><div>{{ snapshot.feels_like_c | format(f="{:.1}") }}°C</div>
+        <div><strong>Humidity</strong></div><div>{{ snapshot.humidity_pct | format(f="{:.0}") }}%</div>
+        <div><strong>Conditions</strong></div><div>{{ weather_description(snapshot.weather_code) }}</div>
+    </div>
+    {% if timestamp.is_some() %}
+    <div class="meta">Observed at {{ timestamp.as_ref().unwrap() }}</div>
+    {% endif %}
+    {% if battery_level.is_some() %}
+    <div class="meta">
+        <span class="badge">
+            Battery {{ battery_level.unwrap() }}%{% if let Some(true) = is_charging %} (charging){% endif %}{% if let Some(false) = is_charging %} (on battery){% endif %}
+        </span>
+    </div>
+    {% endif %}
+    <div class="hint">Use /render?latitude=..&longitude=..&batteryLevel=85&isCharging=true (width/height optional)</div>
+</body>
+</html>

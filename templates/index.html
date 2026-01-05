@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Kindle Weather Dashboard</title>
+    <style>
+        body { font-family: sans-serif; margin: 2rem; }
+        code { background: #f3f3f3; padding: 0.2rem 0.4rem; border-radius: 4px; }
+        .callout { border-left: 4px solid #000; padding-left: 1rem; margin: 1rem 0; }
+    </style>
+</head>
+<body>
+    <h1>Kindle-ready dashboard images</h1>
+    <p>
+        Use <code>/render</code> to fetch a clean PNG that fits your Kindle Paperwhite screen
+        (default {{ width }}&times;{{ height }} pixels). Supply <code>latitude</code> and
+        <code>longitude</code> query parameters to target your location.
+    </p>
+
+    {% include "widgets/weather.html" %}
+
+    <div class="callout">
+        <strong>Battery overlay:</strong> add <code>batteryLevel</code> (0-100) and optional
+        <code>isCharging=true|false</code> to display device power status on the generated image.
+    </div>
+
+    <p>
+        Example: <code>/render?latitude={{ default_latitude }}&longitude={{ default_longitude }}&batteryLevel=75&isCharging=true</code>
+    </p>
+</body>
+</html>
