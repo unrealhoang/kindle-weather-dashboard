@@ -1,28 +1,26 @@
-use std::{env, io::Cursor, net::SocketAddr, ops::Deref, sync::Arc};
+use std::{env, io::Cursor, net::SocketAddr, sync::Arc};
 
-use anyhow::{Context, anyhow};
-use anyrender_vello_cpu::VelloCpuImageRenderer;
-use anyrender::ImageRenderer;
+use anyhow::Context;
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
     Router,
     extract::{Query, State},
     http::{HeaderMap, header},
+    response::IntoResponse,
     response::Response,
     routing::get,
-    response::IntoResponse
 };
-use blitz_dom::{DocumentConfig, Document};
-use blitz_html::HtmlDocument;
-use blitz_traits::shell::{ColorScheme, Viewport};
 use chrono::{DateTime, Local, TimeZone, Utc};
-use image::{DynamicImage, ImageBuffer, ImageFormat, Luma, Rgba};
+use image::{DynamicImage, ImageBuffer, ImageFormat, Luma};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
+
+mod render;
+use crate::render::render_html_to_image;
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
 const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
@@ -155,7 +153,7 @@ struct WeatherSnapshot {
     observation_time: Option<DateTime<Local>>,
 }
 
-#[derive(Template,WebTemplate)]
+#[derive(Template, WebTemplate)]
 #[template(path = "index.html")]
 struct IndexTemplate {
     default_latitude: f64,
@@ -309,29 +307,6 @@ async fn render_image(
     );
 
     Ok((headers, bytes).into_response())
-}
-
-fn render_html_to_image(
-    html: &str,
-    width: u32,
-    height: u32,
-) -> anyhow::Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-    let cfg = DocumentConfig {
-        viewport: Some(Viewport::new(width, height, 1.0, ColorScheme::Light)),
-        ..Default::default()
-    };
-
-    let doc = HtmlDocument::from_html(html, cfg);
-    let mut renderer = VelloCpuImageRenderer::new(width, height);
-    let mut buffer = Vec::new();
-
-    renderer.render_to_vec(
-        |scene| blitz_paint::paint_scene(scene, doc.inner().deref(), 1.0, width, height),
-        &mut buffer,
-    );
-
-    ImageBuffer::from_vec(width, height, buffer)
-        .ok_or_else(|| anyhow!("failed to build image from Blitz renderer output"))
 }
 
 fn weather_description(code: &i32) -> &'static str {
