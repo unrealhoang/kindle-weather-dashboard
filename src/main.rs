@@ -2,20 +2,21 @@ use std::{env, io::Cursor, net::SocketAddr, ops::Deref, sync::Arc};
 
 use anyhow::{Context, anyhow};
 use anyrender_vello_cpu::VelloCpuImageRenderer;
+use anyrender::ImageRenderer;
 use askama::Template;
-use askama_axum::IntoResponse;
+use askama_web::WebTemplate;
 use axum::{
     Router,
     extract::{Query, State},
     http::{HeaderMap, header},
     response::Response,
     routing::get,
+    response::IntoResponse
 };
-use blitz_dom::DocumentConfig;
+use blitz_dom::{DocumentConfig, Document};
 use blitz_html::HtmlDocument;
 use blitz_traits::shell::{ColorScheme, Viewport};
 use chrono::{DateTime, Local, TimeZone, Utc};
-use futures::future;
 use image::{DynamicImage, ImageBuffer, ImageFormat, Luma, Rgba};
 use reqwest::Client;
 use serde::Deserialize;
@@ -42,23 +43,19 @@ struct DashboardConfig {
 
 impl DashboardConfig {
     fn from_env() -> Self {
-        let latitude = env
-            .var("DEFAULT_LATITUDE")
+        let latitude = env::var("DEFAULT_LATITUDE")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(40.7128);
-        let longitude = env
-            .var("DEFAULT_LONGITUDE")
+        let longitude = env::var("DEFAULT_LONGITUDE")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(-74.0060);
-        let width = env
-            .var("DASHBOARD_WIDTH")
+        let width = env::var("DASHBOARD_WIDTH")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_KINDLE_WIDTH);
-        let height = env
-            .var("DASHBOARD_HEIGHT")
+        let height = env::var("DASHBOARD_HEIGHT")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_KINDLE_HEIGHT);
@@ -158,7 +155,7 @@ struct WeatherSnapshot {
     observation_time: Option<DateTime<Local>>,
 }
 
-#[derive(Template)]
+#[derive(Template,WebTemplate)]
 #[template(path = "index.html")]
 struct IndexTemplate {
     default_latitude: f64,
@@ -292,7 +289,7 @@ async fn render_image(
     };
 
     let html = template.render().map_err(internal_error)?;
-    let rgba = render_html_to_image(&html, dims.0, dims.1).map_err(internal_error)?;
+    let rgba = render_html_to_image(&html, dims.0, dims.1).map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
 
@@ -337,7 +334,7 @@ fn render_html_to_image(
         .ok_or_else(|| anyhow!("failed to build image from Blitz renderer output"))
 }
 
-fn weather_description(code: i32) -> &'static str {
+fn weather_description(code: &i32) -> &'static str {
     match code {
         0 => "Clear sky",
         1 | 2 => "Mostly clear",
@@ -358,6 +355,15 @@ fn weather_description(code: i32) -> &'static str {
 }
 
 fn internal_error<E: std::error::Error>(err: E) -> Response {
+    error!(?err, "internal error while processing image");
+    (
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        "Internal Server Error",
+    )
+        .into_response()
+}
+
+fn internal_error_anyhow(err: anyhow::Error) -> Response {
     error!(?err, "internal error while processing image");
     (
         axum::http::StatusCode::INTERNAL_SERVER_ERROR,

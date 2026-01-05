@@ -5,15 +5,15 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-askama = "0.12"
-askama_axum = "0.4"
-axum = { version = "0.7", features = ["macros"] }
+askama = "0.15"
+askama_web = { version = "0.15.0", features = ["axum-0.8"] }
+axum = { version = "0.8", features = ["macros"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
 futures = "0.3"
 image = "0.25"
-imageproc = "0.25"
+imageproc = "0.26"
 once_cell = "1.19"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 rusttype = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -24,4 +24,5 @@ blitz-html = { git = "https://github.com/DioxusLabs/blitz", default-features = f
 blitz-paint = { git = "https://github.com/DioxusLabs/blitz", default-features = false }
 blitz-dom = { git = "https://github.com/DioxusLabs/blitz", default-features = false }
 blitz-traits = { git = "https://github.com/DioxusLabs/blitz", default-features = false }
+anyrender = { git = "https://github.com/DioxusLabs/anyrender", default-features = false }
 anyrender_vello_cpu = { git = "https://github.com/DioxusLabs/anyrender", default-features = false }

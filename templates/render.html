@@ -44,12 +44,22 @@
 <body>
     <div class="headline">Kindle Weather Dashboard</div>
     <div class="grid">
-        <div><strong>Latitude</strong></div><div>{{ coords.latitude | format(f="{:.4}") }}</div>
-        <div><strong>Longitude</strong></div><div>{{ coords.longitude | format(f="{:.4}") }}</div>
-        <div><strong>Temperature</strong></div><div>{{ snapshot.temperature_c | format(f="{:.1}") }}°C</div>
-        <div><strong>Feels Like</strong></div><div>{{ snapshot.feels_like_c | format(f="{:.1}") }}°C</div>
-        <div><strong>Humidity</strong></div><div>{{ snapshot.humidity_pct | format(f="{:.0}") }}%</div>
-        <div><strong>Conditions</strong></div><div>{{ weather_description(snapshot.weather_code) }}</div>
+        <div><strong>Latitude</strong></div>
+        <div>{{ "{:.4}" | format(coords.latitude) }}</div>
+
+        <div><strong>Longitude</strong></div>
+        <div>{{ "{:.4}" | format(coords.longitude) }}</div>
+
+        <div><strong>Temperature</strong></div>
+        <div>{{ "{:.1}" | format(snapshot.temperature_c) }}°C</div>
+
+        <div><strong>Feels Like</strong></div>
+        <div>{{ "{:.1}" | format(snapshot.feels_like_c) }}°C</div>
+
+        <div><strong>Humidity</strong></div>
+        <div>{{ "{:.0}" | format(snapshot.humidity_pct) }}%</div>
+
+        <div><strong>Conditions</strong></div><div>{{ self::weather_description(snapshot.weather_code) }}</div>
     </div>
     {% if timestamp.is_some() %}
     <div class="meta">Observed at {{ timestamp.as_ref().unwrap() }}</div>
