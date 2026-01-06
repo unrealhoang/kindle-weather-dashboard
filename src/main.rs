@@ -23,7 +23,7 @@ mod render;
 use crate::render::render_widget;
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
-const DEFAULT_KINDLE_HEIGHT: u32 = 724;
+const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
 
 #[derive(Clone)]
 struct AppState {
@@ -370,14 +370,14 @@ async fn render_image(
         .unwrap_or_else(|| "Today".to_string());
 
     let typst_source = build_widget_document(
-        dims,
+        (dims.0 / 2, dims.1 / 2),
         &weather,
         &day_label,
         params.battery_level,
         params.is_charging,
     );
 
-    let rgba = render_widget(&typst_source, 1.0).map_err(internal_error_anyhow)?;
+    let rgba = render_widget(&typst_source, 2.0).map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
 

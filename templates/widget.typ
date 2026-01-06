@@ -1,8 +1,8 @@
 #set page(
-  width: {{ width }}pt,
-  height: {{ height }}pt,
+  width: {{width}}pt,
+  height: {{height}}pt,
   fill: rgb("#eaf1fb"),
-  margin: 24pt,
+  margin: 12pt,
 )
 
 #set text(
@@ -17,23 +17,23 @@
 #let c-pill = rgb("#f3f7ff")
 
 #let label(t) = text(9pt, fill: c-muted)[#t]
-#let bold(t, size: 12pt) = text(size, weight: "bold")[#t]
+#let bold(t, size: 11pt) = text(size, weight: "bold")[#t]
 
 #let pill(icon, title, val) = rect(
   fill: c-pill,
   stroke: 1pt + c-line,
   radius: 12pt,
-  inset: (x: 14pt, y: 10pt),
+  inset: (x: 8pt, y: 10pt),
 )[
   #grid(
     columns: (18pt, 1fr),
     gutter: 10pt,
     align: (left, left),
-    box(width: 18pt, height: 18pt, align(center, icon)),
+    box(width: 16pt, height: 16pt, align(center, icon)),
     stack(
       spacing: 2pt,
       label(title),
-      bold(val, size: 12pt),
+      bold(val),
     ),
   )
 ]
@@ -80,7 +80,7 @@
     text(11pt, fill: c-muted)[#datetime],
   )
 
-  #v(18pt)
+  #v(10pt)
 
   #grid(
     columns: (1.2fr, 1fr),
@@ -92,14 +92,14 @@
       bold(temp, size: 40pt),
       text(11pt, fill: c-muted)[Real feel #real-feel],
     ),
-    align(right, text(64pt)[⛅]),
+    align(right, text(60pt)[⛅]),
   )
 
-  #v(18pt)
+  #v(10pt)
 
   #grid(
     columns: (1fr, 1fr, 1fr, 1fr),
-    gutter: 12pt,
+    gutter: 10pt,
     pill([⛅], "Conditions", condition),
     pill([🌡️], "Temperature", temp),
     pill([🌡️], "Feels Like", real-feel),
@@ -108,19 +108,19 @@
 
   #v(18pt)
 
-  #bold([Today · Next 8 hours (every 2 hours)], size: 12pt)
+  #bold([Today · Next 8 hours (every 2 hours)])
 
   #v(10pt)
 
   #grid(
     columns: (1fr, 1fr, 1fr, 1fr),
-    gutter: 12pt,
+    gutter: 10pt,
 {% for card in hourly_cards %}
     hour-card("{{ card.time }}", "{{ card.temperature }}", "{{ card.rain }}"),
 {% endfor %}
   )
 
-  #v(18pt)
+  #v(10pt)
 
   #grid(
     columns: (1fr, 1fr),
