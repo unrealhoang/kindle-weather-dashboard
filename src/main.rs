@@ -7,8 +7,7 @@ use axum::{
     Router,
     extract::{Query, State},
     http::{HeaderMap, header},
-    response::IntoResponse,
-    response::Response,
+    response::{Html, IntoResponse, Response},
     routing::get,
 };
 use chrono::{DateTime, Local, TimeZone, Utc};
@@ -94,7 +93,7 @@ impl WeatherClient {
 
     async fn fetch_current_weather(&self, coords: Coordinates) -> anyhow::Result<WeatherSnapshot> {
         let url = format!(
-            "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,timeformat=unixtime",
+            "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code&timeformat=unixtime",
             coords.latitude, coords.longitude
         );
 
@@ -202,9 +201,10 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(render_index))
         .route("/render", get(render_image))
+        .route("/render_html", get(render_html))
         .with_state(state);
 
-    let addr: SocketAddr = ([0, 0, 0, 0], 3000).into();
+    let addr: SocketAddr = ([0, 0, 0, 0], 4000).into();
     info!("Starting server on {addr}");
 
     axum::serve(
@@ -252,6 +252,44 @@ async fn render_index(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
+async fn render_html(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<RenderParams>,
+) -> Result<Response, Response> {
+    let coords = state.config.coordinates(&params);
+    let dims = state.config.dimensions(&params);
+
+    let snapshot = match state.client.fetch_current_weather(coords).await {
+        Ok(data) => data,
+        Err(err) => {
+            error!(
+                ?err,
+                "failed to fetch weather; falling back to cached values"
+            );
+            WeatherSnapshot {
+                temperature_c: 0.0,
+                feels_like_c: 0.0,
+                humidity_pct: 0.0,
+                weather_code: 0,
+                observation_time: None,
+            }
+        }
+    };
+
+    let template = RenderTemplate {
+        timestamp: snapshot
+            .observation_time
+            .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string()),
+        coords,
+        snapshot: snapshot.clone(),
+        battery_level: params.battery_level,
+        is_charging: params.is_charging,
+    };
+
+    let html = template.render().map_err(internal_error)?;
+    Ok(Html(html).into_response())
+}
+
 async fn render_image(
     State(state): State<Arc<AppState>>,
     Query(params): Query<RenderParams>,
@@ -287,6 +325,7 @@ async fn render_image(
     };
 
     let html = template.render().map_err(internal_error)?;
+
     let rgba = render_html_to_image(&html, dims.0, dims.1).map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
