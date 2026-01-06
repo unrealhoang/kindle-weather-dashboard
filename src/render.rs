@@ -9,8 +9,27 @@ use blitz_net::Provider;
 use blitz_paint::paint_scene;
 use blitz_traits::shell::{ColorScheme, Viewport};
 use image::{ImageBuffer, Rgba};
+use linebender_resource_handle::Blob;
+use once_cell::sync::Lazy;
+use parley::FontContext;
 use peniko::Fill;
 use peniko::kurbo::Rect;
+
+static FALLBACK_FONT: Lazy<Blob<u8>> = Lazy::new(|| {
+    // DejaVu Sans provides a broad, readable fallback for rendering text when the
+    // environment doesn't expose any system fonts (such as in CI containers).
+    let bytes: Arc<dyn AsRef<[u8]> + Send + Sync> =
+        Arc::new(include_bytes!("../assets/DejaVuSans.ttf")) as _;
+    Blob::new(bytes)
+});
+
+fn font_context_with_fallback() -> FontContext {
+    let mut font_ctx = FontContext::default();
+    font_ctx
+        .collection
+        .register_fonts(FALLBACK_FONT.clone(), None);
+    font_ctx
+}
 
 pub fn render_html_to_image(
     html: &str,
@@ -30,6 +49,7 @@ pub fn render_html_to_image(
                 scale as f32,
                 ColorScheme::Light,
             )),
+            font_ctx: Some(font_context_with_fallback()),
             ..Default::default()
         },
     );
