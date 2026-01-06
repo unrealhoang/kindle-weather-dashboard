@@ -29,6 +29,13 @@
       # `eachDefaultSystem` transforms the input, our output set
       # now simply has `packages.default` which gets turned into
       # `packages.${system}.default` (for each system)
+      packages.default = pkgs.rustPlatform.buildRustPackage {
+        pname = "kindle-weather-dashboard";
+        version = "0.1.0";
+        src = ./.;
+        cargoLock.lockFile = ./Cargo.lock;
+      };
+
       devShells.default = pkgs.mkShell {
         inherit buildInputs nativeBuildInputs;
       };
