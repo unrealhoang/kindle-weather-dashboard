@@ -13,7 +13,10 @@ use axum::{
 use chrono::{DateTime, Duration, Local, TimeZone, Utc};
 use image::{DynamicImage, ImageBuffer, ImageFormat, Luma};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{
+    Deserialize,
+    de::{self, Deserializer, Unexpected},
+};
 use tokio::signal;
 use tower_http::services::ServeDir;
 use tracing::{error, info};
@@ -179,10 +182,39 @@ impl WeatherClient {
 struct RenderParams {
     #[serde(rename = "batteryLevel")]
     battery_level: Option<u8>,
-    #[serde(rename = "isCharging")]
+    #[serde(rename = "isCharging", deserialize_with = "deserialize_bool_option")]
     is_charging: Option<bool>,
     width: Option<u32>,
     height: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BoolOrString {
+    Bool(bool),
+    String(String),
+}
+
+fn deserialize_bool_option<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<BoolOrString>::deserialize(deserializer)?;
+
+    Ok(match value {
+        Some(BoolOrString::Bool(value)) => Some(value),
+        Some(BoolOrString::String(value)) => match value.to_lowercase().as_str() {
+            "yes" | "true" => Some(true),
+            "no" | "false" => Some(false),
+            other => {
+                return Err(de::Error::invalid_value(
+                    Unexpected::Str(other),
+                    &"`true`, `false`, `yes`, or `no`",
+                ));
+            }
+        },
+        None => None,
+    })
 }
 
 #[derive(Clone, Copy)]
