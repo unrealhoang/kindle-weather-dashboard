@@ -17,6 +17,7 @@ use serde::Deserialize;
 use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
+use tower_http::services::ServeDir;
 
 mod render;
 use crate::render::render_html_to_image;
@@ -273,6 +274,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(render_index))
         .route("/render", get(render_image))
         .route("/render_html", get(render_html))
+        .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
     let addr: SocketAddr = ([0, 0, 0, 0], 4000).into();
