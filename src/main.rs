@@ -1,6 +1,6 @@
 use std::{env, io::Cursor, net::SocketAddr, sync::Arc};
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
@@ -272,13 +272,45 @@ struct OpenMeteoHourly {
     precipitation_probability: Vec<f64>,
 }
 
+#[derive(Default)]
+struct CliArgs {
+    port: u16,
+}
+
+impl CliArgs {
+    fn parse() -> anyhow::Result<Self> {
+        let mut args = env::args().skip(1);
+        let mut parsed = CliArgs { port: 4000 };
+
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--port" | "-p" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| anyhow!("--port requires a value"))?;
+                    parsed.port = value
+                        .parse()
+                        .with_context(|| format!("invalid port value: {value}"))?;
+                }
+                other => return Err(anyhow!("Unknown argument: {other}")),
+            }
+        }
+
+        Ok(parsed)
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(filter)
         .with_target(false)
         .compact()
         .init();
+
+    let cli = CliArgs::parse()?;
 
     let state = Arc::new(AppState {
         client: WeatherClient::new(),
@@ -291,7 +323,7 @@ async fn main() -> anyhow::Result<()> {
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
-    let addr: SocketAddr = ([0, 0, 0, 0], 4000).into();
+    let addr: SocketAddr = ([0, 0, 0, 0], cli.port).into();
     info!("Starting server on {addr}");
 
     axum::serve(
