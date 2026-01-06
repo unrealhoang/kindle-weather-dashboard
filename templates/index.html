@@ -19,11 +19,11 @@
 
     <div class="callout">
         <strong>Battery overlay:</strong> add <code>batteryLevel</code> (0-100) and optional
-        <code>isCharging=true|false</code> to display device power status on the generated image.
+        <code>isCharging=true|false|yes|no</code> to display device power status on the generated image.
     </div>
 
     <p>
-        Example: <code>/render/{{ default_latitude }}/{{ default_longitude }}?batteryLevel=75&isCharging=true</code>
+        Example: <code>/render/{{ default_latitude }}/{{ default_longitude }}?batteryLevel=75&isCharging=yes</code>
     </p>
 
     <p>The rendered image now comes from a Typst widget layout with the Kindle-friendly styling shown in the demo.</p>
