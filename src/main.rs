@@ -7,7 +7,7 @@ use axum::{
     Router,
     extract::{Query, State},
     http::{HeaderMap, header},
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::get,
 };
 use chrono::{DateTime, Duration, Local, TimeZone, Utc};
@@ -15,12 +15,12 @@ use image::{DynamicImage, ImageBuffer, ImageFormat, Luma};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::signal;
+use tower_http::services::ServeDir;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
-use tower_http::services::ServeDir;
 
 mod render;
-use crate::render::render_html_to_image;
+use crate::render::render_widget;
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
 const DEFAULT_KINDLE_HEIGHT: u32 = 724;
@@ -224,17 +224,6 @@ struct IndexTemplate {
     height: u32,
 }
 
-#[derive(Template)]
-#[template(path = "render.html")]
-struct RenderTemplate {
-    snapshot: WeatherSnapshot,
-    forecast: Vec<HourlyForecast>,
-    day_label: String,
-    battery_level: Option<u8>,
-    is_charging: Option<bool>,
-    timestamp: Option<String>,
-}
-
 #[derive(Deserialize)]
 struct OpenMeteoResponse {
     current: OpenMeteoCurrent,
@@ -273,7 +262,6 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(render_index))
         .route("/render", get(render_image))
-        .route("/render_html", get(render_html))
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
@@ -325,55 +313,6 @@ async fn render_index(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
-async fn render_html(
-    State(state): State<Arc<AppState>>,
-    Query(params): Query<RenderParams>,
-) -> Result<Response, Response> {
-    let coords = state.config.coordinates(&params);
-
-    let weather = match state.client.fetch_weather_data(coords).await {
-        Ok(data) => data,
-        Err(err) => {
-            error!(
-                ?err,
-                "failed to fetch weather; falling back to cached values"
-            );
-            WeatherData {
-                snapshot: WeatherSnapshot {
-                    temperature_c: 0.0,
-                    feels_like_c: 0.0,
-                    humidity_pct: 0.0,
-                    weather_code: 0,
-                    observation_time: None,
-                },
-                forecast: Vec::new(),
-            }
-        }
-    };
-
-    let day_label = weather
-        .snapshot
-        .observation_time
-        .as_ref()
-        .map(|ts| ts.format("%A").to_string())
-        .unwrap_or_else(|| "Today".to_string());
-
-    let template = RenderTemplate {
-        timestamp: weather
-            .snapshot
-            .observation_time
-            .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string()),
-        snapshot: weather.snapshot.clone(),
-        forecast: weather.forecast.clone(),
-        day_label,
-        battery_level: params.battery_level,
-        is_charging: params.is_charging,
-    };
-
-    let html = template.render().map_err(internal_error)?;
-    Ok(Html(html).into_response())
-}
-
 async fn render_image(
     State(state): State<Arc<AppState>>,
     Query(params): Query<RenderParams>,
@@ -408,21 +347,15 @@ async fn render_image(
         .map(|ts| ts.format("%A").to_string())
         .unwrap_or_else(|| "Today".to_string());
 
-    let template = RenderTemplate {
-        timestamp: weather
-            .snapshot
-            .observation_time
-            .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string()),
-        snapshot: weather.snapshot.clone(),
-        forecast: weather.forecast.clone(),
-        day_label,
-        battery_level: params.battery_level,
-        is_charging: params.is_charging,
-    };
+    let typst_source = build_widget_document(
+        dims,
+        &weather,
+        &day_label,
+        params.battery_level,
+        params.is_charging,
+    );
 
-    let html = template.render().map_err(internal_error)?;
-
-    let rgba = render_html_to_image(&html, dims.0, dims.1).map_err(internal_error_anyhow)?;
+    let rgba = render_widget(&typst_source, 1.0).map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
 
@@ -462,6 +395,208 @@ fn weather_description(code: &i32) -> &'static str {
         96 | 99 => "Thunderstorm with hail",
         _ => "Unknown",
     }
+}
+
+fn build_widget_document(
+    dims: (u32, u32),
+    weather: &WeatherData,
+    day_label: &str,
+    battery_level: Option<u8>,
+    is_charging: Option<bool>,
+) -> String {
+    let condition = weather_description(&weather.snapshot.weather_code);
+    let temperature = format!("{:.0}°C", weather.snapshot.temperature_c.round());
+    let feels_like = format!("{:.0}°C", weather.snapshot.feels_like_c.round());
+    let humidity = format!("{:.0}%", weather.snapshot.humidity_pct.round());
+    let datetime_label = weather
+        .snapshot
+        .observation_time
+        .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| "--".to_string());
+
+    let battery = match battery_level {
+        Some(level) if is_charging.unwrap_or(false) => {
+            format!("Battery {level}% (charging)")
+        }
+        Some(level) => format!("Battery {level}%"),
+        None => "Battery status unavailable".to_string(),
+    };
+
+    let updated = weather
+        .snapshot
+        .observation_time
+        .map(|ts| format!("Updated {}", ts.format("%Y-%m-%d %H:%M")))
+        .unwrap_or_else(|| "Updated --".to_string());
+
+    let mut hourly_cards = String::new();
+    for period in weather.forecast.iter().take(4) {
+        hourly_cards.push_str(&format!(
+            "    hour-card(\"{}\", \"{:.0}°C\", \"{:.0}%\"),\n",
+            period.time.format("%I:%M %p"),
+            period.temperature_c.round(),
+            period.precipitation_probability.round(),
+        ));
+    }
+
+    while hourly_cards.lines().count() < 4 {
+        hourly_cards.push_str("    hour-card(\"--\", \"--\", \"--\"),\n");
+    }
+
+    format!(
+        r###"#set page(
+  width: {width}pt,
+  height: {height}pt,
+  fill: rgb("#eaf1fb"),
+  margin: 24pt,
+)
+
+#set text(
+  font: "DejaVu Sans",
+  size: 11pt,
+  fill: rgb("#111827"),
+)
+
+#let c-card = white
+#let c-muted = rgb("#6b7280")
+#let c-line = rgb("#e5e7eb")
+#let c-pill = rgb("#f3f7ff")
+
+#let label(t) = text(9pt, fill: c-muted)[#t]
+#let bold(t, size: 12pt) = text(size, weight: "bold")[#t]
+
+#let pill(icon, title, val) = rect(
+  fill: c-pill,
+  stroke: 1pt + c-line,
+  radius: 12pt,
+  inset: (x: 14pt, y: 10pt),
+)[
+  #grid(
+    columns: (18pt, 1fr),
+    gutter: 10pt,
+    align: (left, left),
+    box(width: 18pt, height: 18pt, align(center, icon)),
+    stack(
+      spacing: 2pt,
+      label(title),
+      bold(val, size: 12pt),
+    ),
+  )
+]
+
+#let hour-card(time, temp, rain) = rect(
+  fill: c-card,
+  stroke: 1pt + c-line,
+  radius: 12pt,
+  inset: (x: 14pt, y: 10pt),
+)[
+  #stack(
+    spacing: 6pt,
+    bold(time, size: 10pt),
+    grid(
+      columns: (1fr, 1fr),
+      gutter: 10pt,
+      align: (left, left),
+      text(10pt, fill: c-muted)[🌡️ #temp],
+      text(10pt, fill: c-muted)[☔ #rain],
+    ),
+  )
+]
+
+#let weather-card(
+  day: "Tuesday",
+  datetime: "2026-01-06 11:00",
+  condition: "Clear sky",
+  temp: "6°C",
+  real-feel: "2°C",
+  humidity: "38%",
+  battery: "Battery 75% (charging)",
+  updated: "Updated 2026-01-06 11:00",
+) = rect(
+  fill: c-card,
+  stroke: none,
+  radius: 28pt,
+  inset: 28pt,
+)[
+  #grid(
+    columns: (1fr, 1fr),
+    gutter: 12pt,
+    align: (left, right),
+    bold(day, size: 14pt),
+    text(11pt, fill: c-muted)[#datetime],
+  )
+
+  #v(18pt)
+
+  #grid(
+    columns: (1.2fr, 1fr),
+    gutter: 10pt,
+    align: (left, right),
+    stack(
+      spacing: 6pt,
+      text(12pt, fill: c-muted)[#condition],
+      bold(temp, size: 40pt),
+      text(11pt, fill: c-muted)[Real feel #real-feel],
+    ),
+    align(right, text(64pt)[⛅]),
+  )
+
+  #v(18pt)
+
+  #grid(
+    columns: (1fr, 1fr, 1fr, 1fr),
+    gutter: 12pt,
+    pill([⛅], "Conditions", condition),
+    pill([🌡️], "Temperature", temp),
+    pill([🌡️], "Feels Like", real-feel),
+    pill([💧], "Humidity", humidity),
+  )
+
+  #v(18pt)
+
+  #bold([Today · Next 8 hours (every 2 hours)], size: 12pt)
+
+  #v(10pt)
+
+  #grid(
+    columns: (1fr, 1fr, 1fr, 1fr),
+    gutter: 12pt,
+{hourly_cards}
+  )
+
+  #v(18pt)
+
+  #grid(
+    columns: (1fr, 1fr),
+    gutter: 12pt,
+    align: (left, right),
+    text(10pt, fill: c-muted)[#battery],
+    text(10pt, fill: c-muted)[#updated],
+  )
+]
+
+#align(center, weather-card(
+  day: "{day_label}",
+  datetime: "{datetime_label}",
+  condition: "{condition}",
+  temp: "{temperature}",
+  real-feel: "{feels_like}",
+  humidity: "{humidity}",
+  battery: "{battery}",
+  updated: "{updated}",
+))
+"###,
+        width = dims.0,
+        height = dims.1,
+        day_label = day_label,
+        datetime_label = datetime_label,
+        condition = condition,
+        temperature = temperature,
+        feels_like = feels_like,
+        humidity = humidity,
+        battery = battery,
+        updated = updated,
+        hourly_cards = hourly_cards,
+    )
 }
 
 fn internal_error<E: std::error::Error>(err: E) -> Response {

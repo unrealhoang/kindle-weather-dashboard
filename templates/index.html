@@ -17,8 +17,6 @@
         <code>longitude</code> query parameters to target your location.
     </p>
 
-    {% include "widgets/weather.html" %}
-
     <div class="callout">
         <strong>Battery overlay:</strong> add <code>batteryLevel</code> (0-100) and optional
         <code>isCharging=true|false</code> to display device power status on the generated image.
@@ -27,5 +25,7 @@
     <p>
         Example: <code>/render?latitude={{ default_latitude }}&longitude={{ default_longitude }}&batteryLevel=75&isCharging=true</code>
     </p>
+
+    <p>The rendered image now comes from a Typst widget layout with the Kindle-friendly styling shown in the demo.</p>
 </body>
 </html>
