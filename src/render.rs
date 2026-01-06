@@ -1,88 +1,120 @@
-use std::sync::Arc;
-
-use anyhow::anyhow;
-use anyrender::{PaintScene as _, render_to_buffer};
-use anyrender_vello_cpu::VelloCpuImageRenderer;
-use blitz_dom::{DocumentConfig, util::Color};
-use blitz_html::HtmlDocument;
-use blitz_net::Provider;
-use blitz_paint::paint_scene;
-use blitz_traits::shell::{ColorScheme, Viewport};
+use anyhow::Context;
+use chrono::{Datelike, Duration, Local, Timelike, Utc};
 use image::{ImageBuffer, Rgba};
-use linebender_resource_handle::Blob;
 use once_cell::sync::Lazy;
-use parley::FontContext;
-use peniko::Fill;
-use peniko::kurbo::Rect;
+use std::path::PathBuf;
+use typst::diag::{FileError, FileResult};
+use typst::foundations::{Bytes, Datetime};
+use typst::syntax::{FileId, Source, VirtualPath};
+use typst::text::{Font, FontBook};
+use typst::utils::LazyHash;
+use typst::{Library, LibraryExt, World};
+use typst_render::render;
 
-static FALLBACK_FONT: Lazy<Blob<u8>> = Lazy::new(|| {
-    // DejaVu Sans provides a broad, readable fallback for rendering text when the
-    // environment doesn't expose any system fonts (such as in CI containers).
-    let bytes: Arc<dyn AsRef<[u8]> + Send + Sync> =
-        Arc::new(include_bytes!("../assets/DejaVuSans.ttf")) as _;
-    Blob::new(bytes)
-});
+static DEJAVUSANS_FONT: Lazy<Bytes> =
+    Lazy::new(|| Bytes::new(include_bytes!("../assets/DejaVuSans.ttf").as_slice()));
+static NOTOEMOJI_FONT: Lazy<Bytes> =
+    Lazy::new(|| Bytes::new(include_bytes!("../assets/NotoColorEmoji.ttf").as_slice()));
 
-fn font_context_with_fallback() -> FontContext {
-    let mut font_ctx = FontContext::default();
-    font_ctx
-        .collection
-        .register_fonts(FALLBACK_FONT.clone(), None);
-    font_ctx
-}
-
-pub fn render_html_to_image(
-    html: &str,
-    width: u32,
-    height: u32,
+pub fn render_widget(
+    document: &str,
+    pixel_per_pt: f32,
 ) -> anyhow::Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-    let scale = 1.0;
-    let net = Arc::new(Provider::new(None));
+    let world = MemoryWorld::new(document)?;
+    let warned = typst::compile::<typst::layout::PagedDocument>(&world);
 
-    let mut document = HtmlDocument::from_html(
-        html,
-        DocumentConfig {
-            net_provider: Some(Arc::clone(&net) as _),
-            viewport: Some(Viewport::new(
-                width,
-                height,
-                scale as f32,
-                ColorScheme::Light,
-            )),
-            font_ctx: Some(font_context_with_fallback()),
-            ..Default::default()
-        },
-    );
-
-    loop {
-        document.resolve(0.0);
-        if net.is_empty() {
-            break;
+    if !warned.warnings.is_empty() {
+        for warning in warned.warnings {
+            tracing::warn!(?warning, "typst warning while compiling widget");
         }
     }
 
-    document.as_mut().resolve(0.0);
+    let document = warned
+        .output
+        .map_err(|errors| anyhow::anyhow!("typst errors: {errors:?}"))?;
+    let pixmap = render(&document.pages[0], pixel_per_pt);
 
-    let render_width = (width as f64 * scale) as u32;
-    let computed_height = document.as_ref().root_element().final_layout.size.height;
-    let render_height = ((computed_height as f64).max(height as f64).min(4000.0) * scale) as u32;
+    ImageBuffer::from_vec(pixmap.width(), pixmap.height(), pixmap.data().to_vec())
+        .context("failed to build image buffer from typst pixmap")
+}
 
-    let buffer = render_to_buffer::<VelloCpuImageRenderer, _>(
-        |scene| {
-            scene.fill(
-                Fill::NonZero,
-                Default::default(),
-                Color::WHITE,
-                Default::default(),
-                &Rect::new(0.0, 0.0, render_width as f64, render_height as f64),
-            );
+struct MemoryWorld {
+    source: Source,
+    library: LazyHash<Library>,
+    book: LazyHash<FontBook>,
+    fonts: Vec<Font>,
+}
 
-            paint_scene(scene, document.as_ref(), scale, render_width, render_height);
-        },
-        render_width,
-        render_height,
-    );
+impl MemoryWorld {
+    fn new(source_text: &str) -> anyhow::Result<Self> {
+        let main_id = FileId::new(None, VirtualPath::new("main.typ"));
+        let source = Source::new(main_id, source_text.to_string());
 
-    ImageBuffer::from_vec(render_width, render_height, buffer)
-        .ok_or_else(|| anyhow!("failed to build image from Blitz renderer output"))
+        let mut fonts: Vec<Font> = Font::iter(DEJAVUSANS_FONT.clone()).collect();
+        fonts.extend(Font::iter(NOTOEMOJI_FONT.clone()));
+        let book = LazyHash::new(FontBook::from_fonts(fonts.iter()));
+
+        let library = LazyHash::new(Library::builder().build());
+
+        Ok(Self {
+            source,
+            library,
+            book,
+            fonts,
+        })
+    }
+}
+
+impl World for MemoryWorld {
+    fn library(&self) -> &LazyHash<Library> {
+        &self.library
+    }
+
+    fn book(&self) -> &LazyHash<FontBook> {
+        &self.book
+    }
+
+    fn main(&self) -> FileId {
+        self.source.id()
+    }
+
+    fn source(&self, id: FileId) -> FileResult<Source> {
+        if id == self.source.id() {
+            Ok(self.source.clone())
+        } else {
+            Err(FileError::NotFound(PathBuf::from(
+                id.vpath().as_rooted_path(),
+            )))
+        }
+    }
+
+    fn file(&self, id: FileId) -> FileResult<Bytes> {
+        if id == self.source.id() {
+            Ok(Bytes::from_string(self.source.text().to_string()))
+        } else {
+            Err(FileError::NotFound(PathBuf::from(
+                id.vpath().as_rooted_path(),
+            )))
+        }
+    }
+
+    fn font(&self, index: usize) -> Option<Font> {
+        self.fonts.get(index).cloned()
+    }
+
+    fn today(&self, offset: Option<i64>) -> Option<Datetime> {
+        let now = match offset {
+            Some(hours) => Utc::now() + Duration::hours(hours),
+            None => Local::now().with_timezone(&Utc),
+        };
+
+        Datetime::from_ymd_hms(
+            now.year(),
+            now.month() as u8,
+            now.day() as u8,
+            now.hour() as u8,
+            now.minute() as u8,
+            now.second() as u8,
+        )
+    }
 }

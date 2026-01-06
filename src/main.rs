@@ -7,7 +7,7 @@ use axum::{
     Router,
     extract::{Query, State},
     http::{HeaderMap, header},
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::get,
 };
 use chrono::{DateTime, Duration, Local, TimeZone, Utc};
@@ -15,15 +15,15 @@ use image::{DynamicImage, ImageBuffer, ImageFormat, Luma};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::signal;
+use tower_http::services::ServeDir;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
-use tower_http::services::ServeDir;
 
 mod render;
-use crate::render::render_html_to_image;
+use crate::render::render_widget;
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
-const DEFAULT_KINDLE_HEIGHT: u32 = 724;
+const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
 
 #[derive(Clone)]
 struct AppState {
@@ -225,14 +225,25 @@ struct IndexTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "render.html")]
-struct RenderTemplate {
-    snapshot: WeatherSnapshot,
-    forecast: Vec<HourlyForecast>,
+#[template(path = "widget.typ", escape = "none")]
+struct WidgetTemplate {
+    width: u32,
+    height: u32,
     day_label: String,
-    battery_level: Option<u8>,
-    is_charging: Option<bool>,
-    timestamp: Option<String>,
+    datetime_label: String,
+    condition: String,
+    temperature: String,
+    feels_like: String,
+    humidity: String,
+    battery: String,
+    updated: String,
+    hourly_cards: Vec<HourlyCardTemplate>,
+}
+
+struct HourlyCardTemplate {
+    time: String,
+    temperature: String,
+    rain: String,
 }
 
 #[derive(Deserialize)]
@@ -273,7 +284,6 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(render_index))
         .route("/render", get(render_image))
-        .route("/render_html", get(render_html))
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
@@ -325,55 +335,6 @@ async fn render_index(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
-async fn render_html(
-    State(state): State<Arc<AppState>>,
-    Query(params): Query<RenderParams>,
-) -> Result<Response, Response> {
-    let coords = state.config.coordinates(&params);
-
-    let weather = match state.client.fetch_weather_data(coords).await {
-        Ok(data) => data,
-        Err(err) => {
-            error!(
-                ?err,
-                "failed to fetch weather; falling back to cached values"
-            );
-            WeatherData {
-                snapshot: WeatherSnapshot {
-                    temperature_c: 0.0,
-                    feels_like_c: 0.0,
-                    humidity_pct: 0.0,
-                    weather_code: 0,
-                    observation_time: None,
-                },
-                forecast: Vec::new(),
-            }
-        }
-    };
-
-    let day_label = weather
-        .snapshot
-        .observation_time
-        .as_ref()
-        .map(|ts| ts.format("%A").to_string())
-        .unwrap_or_else(|| "Today".to_string());
-
-    let template = RenderTemplate {
-        timestamp: weather
-            .snapshot
-            .observation_time
-            .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string()),
-        snapshot: weather.snapshot.clone(),
-        forecast: weather.forecast.clone(),
-        day_label,
-        battery_level: params.battery_level,
-        is_charging: params.is_charging,
-    };
-
-    let html = template.render().map_err(internal_error)?;
-    Ok(Html(html).into_response())
-}
-
 async fn render_image(
     State(state): State<Arc<AppState>>,
     Query(params): Query<RenderParams>,
@@ -408,21 +369,15 @@ async fn render_image(
         .map(|ts| ts.format("%A").to_string())
         .unwrap_or_else(|| "Today".to_string());
 
-    let template = RenderTemplate {
-        timestamp: weather
-            .snapshot
-            .observation_time
-            .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string()),
-        snapshot: weather.snapshot.clone(),
-        forecast: weather.forecast.clone(),
-        day_label,
-        battery_level: params.battery_level,
-        is_charging: params.is_charging,
-    };
+    let typst_source = build_widget_document(
+        (dims.0 / 2, dims.1 / 2),
+        &weather,
+        &day_label,
+        params.battery_level,
+        params.is_charging,
+    );
 
-    let html = template.render().map_err(internal_error)?;
-
-    let rgba = render_html_to_image(&html, dims.0, dims.1).map_err(internal_error_anyhow)?;
+    let rgba = render_widget(&typst_source, 2.0).map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
 
@@ -462,6 +417,75 @@ fn weather_description(code: &i32) -> &'static str {
         96 | 99 => "Thunderstorm with hail",
         _ => "Unknown",
     }
+}
+
+fn build_widget_document(
+    dims: (u32, u32),
+    weather: &WeatherData,
+    day_label: &str,
+    battery_level: Option<u8>,
+    is_charging: Option<bool>,
+) -> String {
+    let condition = weather_description(&weather.snapshot.weather_code);
+    let temperature = format!("{:.0}°C", weather.snapshot.temperature_c.round());
+    let feels_like = format!("{:.0}°C", weather.snapshot.feels_like_c.round());
+    let humidity = format!("{:.0}%", weather.snapshot.humidity_pct.round());
+    let datetime_label = weather
+        .snapshot
+        .observation_time
+        .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| "--".to_string());
+
+    let battery = match battery_level {
+        Some(level) if is_charging.unwrap_or(false) => {
+            format!("Battery {level}% (charging)")
+        }
+        Some(level) => format!("Battery {level}%"),
+        None => "Battery status unavailable".to_string(),
+    };
+
+    let updated = weather
+        .snapshot
+        .observation_time
+        .map(|ts| format!("Updated {}", ts.format("%Y-%m-%d %H:%M")))
+        .unwrap_or_else(|| "Updated --".to_string());
+
+    let mut hourly_cards: Vec<HourlyCardTemplate> = weather
+        .forecast
+        .iter()
+        .take(4)
+        .map(|period| HourlyCardTemplate {
+            time: period.time.format("%I:%M %p").to_string(),
+            temperature: format!("{:.0}°C", period.temperature_c.round()),
+            rain: format!("{:.0}%", period.precipitation_probability.round()),
+        })
+        .collect();
+
+    while hourly_cards.len() < 4 {
+        hourly_cards.push(HourlyCardTemplate {
+            time: "--".to_string(),
+            temperature: "--".to_string(),
+            rain: "--".to_string(),
+        });
+    }
+
+    let template = WidgetTemplate {
+        width: dims.0,
+        height: dims.1,
+        day_label: day_label.to_string(),
+        datetime_label,
+        condition: condition.to_string(),
+        temperature,
+        feels_like,
+        humidity,
+        battery,
+        updated,
+        hourly_cards,
+    };
+
+    template
+        .render()
+        .expect("failed to render Typst widget template")
 }
 
 fn internal_error<E: std::error::Error>(err: E) -> Response {
