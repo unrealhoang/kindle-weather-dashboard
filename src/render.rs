@@ -13,8 +13,10 @@ use typst_render::render;
 
 static DEJAVUSANS_FONT: Lazy<Bytes> =
     Lazy::new(|| Bytes::new(include_bytes!("../assets/DejaVuSans.ttf").as_slice()));
+static DEJAVUSANS_BOLD_FONT: Lazy<Bytes> =
+    Lazy::new(|| Bytes::new(include_bytes!("../assets/DejaVuSans-Bold.ttf").as_slice()));
 static NOTOEMOJI_FONT: Lazy<Bytes> =
-    Lazy::new(|| Bytes::new(include_bytes!("../assets/NotoColorEmoji.ttf").as_slice()));
+    Lazy::new(|| Bytes::new(include_bytes!("../assets/NotoEmoji-Regular.ttf").as_slice()));
 
 pub fn render_widget(
     document: &str,
@@ -51,7 +53,9 @@ impl MemoryWorld {
         let source = Source::new(main_id, source_text.to_string());
 
         let mut fonts: Vec<Font> = Font::iter(DEJAVUSANS_FONT.clone()).collect();
+        fonts.extend(Font::iter(DEJAVUSANS_BOLD_FONT.clone()));
         fonts.extend(Font::iter(NOTOEMOJI_FONT.clone()));
+
         let book = LazyHash::new(FontBook::from_fonts(fonts.iter()));
 
         let library = LazyHash::new(Library::builder().build());

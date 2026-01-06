@@ -1,21 +1,30 @@
 #set page(
   width: {{width}}pt,
   height: {{height}}pt,
-  fill: rgb("#eaf1fb"),
-  margin: 12pt,
+  fill: rgb("#f2f4f7"),
+  margin: 10pt,
 )
 
 #set text(
   font: "DejaVu Sans",
-  size: 11pt,
+  size: 12pt,
   fill: rgb("#111827"),
 )
 
-#let c-card = white
-#let c-muted = rgb("#6b7280")
-#let c-line = rgb("#e5e7eb")
-#let c-pill = rgb("#f3f7ff")
+#let emoji(e, size: 48pt) = text(
+  font: "Noto Emoji",
+  size: size,
+)[#e]
 
+#let c-card = white
+#let c-muted = rgb("#374151")
+#let c-line  = rgb("#cbd5e1")
+#let c-pill  = rgb("#eef2f6")
+
+#let bold(t, size: 12pt) = text(size, weight: "bold")[#t]
+#let dim(t, size: 12pt) = text(size, fill: c-muted)[#t]
+
+// Emoji mapping
 #let condition-emoji = (
   "Clear sky": "☀️",
   "Mostly clear": "🌤️",
@@ -33,139 +42,103 @@
   "Thunderstorm with hail": "⛈️🧊",
   "Unknown": "❓",
 )
-
-#let label(t) = text(9pt, fill: c-muted)[#t]
-#let bold(t, size: 11pt) = text(size, weight: "bold")[#t]
-
-#let pill(icon, title, val) = rect(
-  fill: c-pill,
-  stroke: 1pt + c-line,
-  radius: 12pt,
-  inset: (x: 8pt, y: 10pt),
-)[
-  #grid(
-    columns: (18pt, 1fr),
-    gutter: 10pt,
-    align: (left, left),
-    box(width: 16pt, height: 16pt, align(center, icon)),
-    stack(
-      spacing: 2pt,
-      label(title),
-      bold(val),
-    ),
-  )
-]
-
-#let hour-card(time, temp, rain) = rect(
-  fill: c-card,
-  stroke: 1pt + c-line,
-  radius: 12pt,
-  inset: (x: 14pt, y: 10pt),
-)[
-  #stack(
-    spacing: 6pt,
-    bold(time, size: 10pt),
-    grid(
-      columns: (1fr, 1fr),
-      gutter: 10pt,
-      align: (left, left),
-      text(10pt, fill: c-muted)[🌡️ #temp],
-      text(10pt, fill: c-muted)[☔ #rain],
-    ),
-  )
-]
-
-#let condition-icon(condition) = if condition-emoji.keys().contains(condition) {
-  condition-emoji.at(condition)
+#let condition-icon(c) = if condition-emoji.keys().contains(c) {
+  condition-emoji.at(c)
 } else {
   condition-emoji.at("Unknown")
 }
 
-#let weather-card(data) = {
-  rect(
-    fill: c-card,
-    stroke: none,
-    radius: 28pt,
-    inset: 28pt,
-  )[
-    #grid(
-      columns: (1fr, 1fr),
-      gutter: 12pt,
-      align: (left, right),
-      bold(data.day, size: 14pt),
-      text(11pt, fill: c-muted)[#data.datetime],
-    )
+// Hour card (unchanged, already good)
+#let hour-col(time, temp, rain) = rect(
+  fill: c-card,
+  stroke: 1.2pt + c-line,
+  radius: 12pt,
+  inset: (x: 10pt, y: 8pt),
+)[
+  #stack(
+    spacing: 6pt,
+    [#time],
+    bold(temp, size: 20pt),
+    dim([☔ #bold(rain, size: 16pt)], size: 16pt),
+  )
+]
 
-    #v(10pt)
+#let weather-card-362(data) = rect(
+  fill: c-card,
+  stroke: none,
+  radius: 22pt,
+  inset: 16pt,
+)[
+  // Header
+  #grid(
+    columns: (1fr, auto),
+    gutter: 8pt,
+    align: (left, right),
+    stack(
+      spacing: 8pt,
+      bold(data.day, size: 24pt),
+      dim(data.datetime, size: 12pt),
+    ),
+    stack(
+      spacing: 2pt,
+      dim(data.battery, size: 12pt),
+      dim(data.updated, size: 12pt),
+    ),
+  )
 
-    #grid(
-      columns: (1.2fr, 1fr),
-      gutter: 10pt,
-      align: (left, right),
-      stack(
-        spacing: 6pt,
-        text(12pt, fill: c-muted)[#data.condition],
-        bold(data.temp, size: 40pt),
-        text(11pt, fill: c-muted)[Real feel #data.real-feel],
-      ),
-      align(right, text(60pt)[#data.icon]),
-    )
+  #v(10pt)
 
-    #v(10pt)
+  // HERO BAND: emoji left, condition+feels/hum right (balanced)
+  #grid(
+    columns: (auto, 30%, auto),
+    gutter: 10pt,
+    align: (center, center, center),
 
-    #grid(
-      columns: (1fr, 1fr, 1fr, 1fr),
-      gutter: 10pt,
-      pill([#data.icon], "Conditions", data.condition),
-      pill([🌡️], "Temperature", data.temp),
-      pill([🌡️], "Feels Like", data.real-feel),
-      pill([💧], "Humidity", data.humidity),
-    )
+    // Make emoji visually comparable to 56pt temp
+    // (emoji glyphs often render smaller than Latin digits at same pt)
+    stack(
+      spacing: 10pt,
+      emoji(data.icon, size: 72pt),
+      dim(data.condition, size: 18pt),
+    ),
 
-    #v(18pt)
+    // spacer
+    [],
 
-    #bold([#data.hourly-title])
+    // Right block: condition same size as feels/hum
+    stack(
+      spacing: 4pt,
+      dim([Hum #bold(data.humidity, size: 20pt)], size: 20pt),
+      bold(data.temp, size: 64pt),
+      dim([Feels #bold(data.real-feel, size: 20pt)], size: 20pt),
+    ),
+  )
 
-    #v(10pt)
+  #v(10pt)
 
-    #grid(
-      columns: (1fr, 1fr, 1fr, 1fr),
-      gutter: 10pt,
-      ..data.hours.map(h => hour-card(h.time, h.temp, h.rain))
-    )
-
-    #v(10pt)
-
-    #grid(
-      columns: (1fr, 1fr),
-      gutter: 12pt,
-      align: (left, right),
-      text(10pt, fill: c-muted)[#data.battery],
-      text(10pt, fill: c-muted)[#data.updated],
-    )
-  ]
-}
+  // Hourly forecast (4 tiles)
+  #grid(
+    columns: (1fr, 1fr, 1fr, 1fr),
+    gutter: 4pt,
+    ..data.hours.map(h => hour-col(h.time, h.temp, h.rain))
+  )
+]
 
 #let weather-data = (
   day: "{{ day_label }}",
   datetime: "{{ datetime_label }}",
-
   condition: "{{ condition }}",
   temp: "{{ temperature }}",
   real-feel: "{{ feels_like }}",
   humidity: "{{ humidity }}",
   icon: condition-icon("{{ condition }}"),
-
-  hourly-title: "Today · Next 8 hours (every 2 hours)",
-
   hours: (
 {% for card in hourly_cards %}
     (time: "{{ card.time }}", temp: "{{ card.temperature }}", rain: "{{ card.rain }}"),
 {% endfor %}
   ),
-
   battery: "{{ battery }}",
   updated: "{{ updated }}",
 )
 
-#align(center, weather-card(weather-data))
+#align(center, weather-card-362(weather-data))
