@@ -287,7 +287,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(render_index))
-        .route("/render/:latitude/:longitude", get(render_image))
+        .route("/render/{latitude}/{longitude}", get(render_image))
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
