@@ -12,9 +12,9 @@
 <body>
     <h1>Kindle-ready dashboard images</h1>
     <p>
-        Use <code>/render</code> to fetch a clean PNG that fits your Kindle Paperwhite screen
-        (default {{ width }}&times;{{ height }} pixels). Supply <code>latitude</code> and
-        <code>longitude</code> query parameters to target your location.
+        Use <code>/render/&lt;latitude&gt;/&lt;longitude&gt;</code> to fetch a clean PNG that fits your
+        Kindle Paperwhite screen (default {{ width }}&times;{{ height }} pixels). Coordinates are now
+        provided as path parameters instead of query parameters.
     </p>
 
     <div class="callout">
@@ -23,7 +23,7 @@
     </div>
 
     <p>
-        Example: <code>/render?latitude={{ default_latitude }}&longitude={{ default_longitude }}&batteryLevel=75&isCharging=true</code>
+        Example: <code>/render/{{ default_latitude }}/{{ default_longitude }}?batteryLevel=75&isCharging=true</code>
     </p>
 
     <p>The rendered image now comes from a Typst widget layout with the Kindle-friendly styling shown in the demo.</p>
