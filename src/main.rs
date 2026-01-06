@@ -10,19 +10,20 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use chrono::{DateTime, Local, TimeZone, Utc};
+use chrono::{DateTime, Duration, Local, TimeZone, Utc};
 use image::{DynamicImage, ImageBuffer, ImageFormat, Luma};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
+use tower_http::services::ServeDir;
 
 mod render;
 use crate::render::render_html_to_image;
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
-const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
+const DEFAULT_KINDLE_HEIGHT: u32 = 724;
 
 #[derive(Clone)]
 struct AppState {
@@ -91,9 +92,9 @@ impl WeatherClient {
         }
     }
 
-    async fn fetch_current_weather(&self, coords: Coordinates) -> anyhow::Result<WeatherSnapshot> {
+    async fn fetch_weather_data(&self, coords: Coordinates) -> anyhow::Result<WeatherData> {
         let url = format!(
-            "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code&timeformat=unixtime",
+            "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code&hourly=temperature_2m,precipitation_probability&forecast_days=1&timeformat=unixtime&timezone=UTC",
             coords.latitude, coords.longitude
         );
 
@@ -115,13 +116,62 @@ impl WeatherClient {
             .and_then(|ts| Utc.timestamp_opt(ts, 0).latest())
             .map(|dt| dt.with_timezone(&Local));
 
-        Ok(WeatherSnapshot {
+        let snapshot = WeatherSnapshot {
             temperature_c: response.current.temperature_2m,
             feels_like_c: response.current.apparent_temperature,
             humidity_pct: response.current.relative_humidity_2m,
             weather_code: response.current.weather_code,
             observation_time,
-        })
+        };
+
+        let forecast = self.collect_hourly_forecast(&response);
+
+        Ok(WeatherData { snapshot, forecast })
+    }
+
+    fn collect_hourly_forecast(&self, response: &OpenMeteoResponse) -> Vec<HourlyForecast> {
+        let Some(hourly) = response.hourly.as_ref() else {
+            return Vec::new();
+        };
+
+        let now = Utc::now();
+        let mut last_included: Option<DateTime<Utc>> = None;
+        let mut periods = Vec::new();
+
+        for ((time, temp), precipitation) in hourly
+            .time
+            .iter()
+            .zip(hourly.temperature_2m.iter())
+            .zip(hourly.precipitation_probability.iter())
+        {
+            let timestamp = match Utc.timestamp_opt(*time, 0).latest() {
+                Some(value) => value,
+                None => continue,
+            };
+
+            if timestamp < now {
+                continue;
+            }
+
+            if let Some(last) = last_included {
+                if timestamp.signed_duration_since(last) < Duration::hours(2) {
+                    continue;
+                }
+            }
+
+            periods.push(HourlyForecast {
+                time: timestamp.with_timezone(&Local),
+                temperature_c: *temp,
+                precipitation_probability: *precipitation,
+            });
+            last_included = Some(timestamp);
+
+            if periods.len() >= 4 {
+                break;
+            }
+        }
+
+        periods
     }
 }
 
@@ -152,6 +202,19 @@ struct WeatherSnapshot {
     observation_time: Option<DateTime<Local>>,
 }
 
+#[derive(Debug, Clone)]
+struct WeatherData {
+    snapshot: WeatherSnapshot,
+    forecast: Vec<HourlyForecast>,
+}
+
+#[derive(Debug, Clone)]
+struct HourlyForecast {
+    time: DateTime<Local>,
+    temperature_c: f64,
+    precipitation_probability: f64,
+}
+
 #[derive(Template, WebTemplate)]
 #[template(path = "index.html")]
 struct IndexTemplate {
@@ -164,8 +227,9 @@ struct IndexTemplate {
 #[derive(Template)]
 #[template(path = "render.html")]
 struct RenderTemplate {
-    coords: Coordinates,
     snapshot: WeatherSnapshot,
+    forecast: Vec<HourlyForecast>,
+    day_label: String,
     battery_level: Option<u8>,
     is_charging: Option<bool>,
     timestamp: Option<String>,
@@ -174,6 +238,7 @@ struct RenderTemplate {
 #[derive(Deserialize)]
 struct OpenMeteoResponse {
     current: OpenMeteoCurrent,
+    hourly: Option<OpenMeteoHourly>,
 }
 
 #[derive(Deserialize)]
@@ -183,6 +248,13 @@ struct OpenMeteoCurrent {
     relative_humidity_2m: f64,
     weather_code: i32,
     time: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct OpenMeteoHourly {
+    time: Vec<i64>,
+    temperature_2m: Vec<f64>,
+    precipitation_probability: Vec<f64>,
 }
 
 #[tokio::main]
@@ -202,6 +274,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(render_index))
         .route("/render", get(render_image))
         .route("/render_html", get(render_html))
+        .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
     let addr: SocketAddr = ([0, 0, 0, 0], 4000).into();
@@ -257,31 +330,42 @@ async fn render_html(
     Query(params): Query<RenderParams>,
 ) -> Result<Response, Response> {
     let coords = state.config.coordinates(&params);
-    let dims = state.config.dimensions(&params);
 
-    let snapshot = match state.client.fetch_current_weather(coords).await {
+    let weather = match state.client.fetch_weather_data(coords).await {
         Ok(data) => data,
         Err(err) => {
             error!(
                 ?err,
                 "failed to fetch weather; falling back to cached values"
             );
-            WeatherSnapshot {
-                temperature_c: 0.0,
-                feels_like_c: 0.0,
-                humidity_pct: 0.0,
-                weather_code: 0,
-                observation_time: None,
+            WeatherData {
+                snapshot: WeatherSnapshot {
+                    temperature_c: 0.0,
+                    feels_like_c: 0.0,
+                    humidity_pct: 0.0,
+                    weather_code: 0,
+                    observation_time: None,
+                },
+                forecast: Vec::new(),
             }
         }
     };
 
+    let day_label = weather
+        .snapshot
+        .observation_time
+        .as_ref()
+        .map(|ts| ts.format("%A").to_string())
+        .unwrap_or_else(|| "Today".to_string());
+
     let template = RenderTemplate {
-        timestamp: snapshot
+        timestamp: weather
+            .snapshot
             .observation_time
             .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string()),
-        coords,
-        snapshot: snapshot.clone(),
+        snapshot: weather.snapshot.clone(),
+        forecast: weather.forecast.clone(),
+        day_label,
         battery_level: params.battery_level,
         is_charging: params.is_charging,
     };
@@ -297,29 +381,41 @@ async fn render_image(
     let coords = state.config.coordinates(&params);
     let dims = state.config.dimensions(&params);
 
-    let snapshot = match state.client.fetch_current_weather(coords).await {
+    let weather = match state.client.fetch_weather_data(coords).await {
         Ok(data) => data,
         Err(err) => {
             error!(
                 ?err,
                 "failed to fetch weather; falling back to cached values"
             );
-            WeatherSnapshot {
-                temperature_c: 0.0,
-                feels_like_c: 0.0,
-                humidity_pct: 0.0,
-                weather_code: 0,
-                observation_time: None,
+            WeatherData {
+                snapshot: WeatherSnapshot {
+                    temperature_c: 0.0,
+                    feels_like_c: 0.0,
+                    humidity_pct: 0.0,
+                    weather_code: 0,
+                    observation_time: None,
+                },
+                forecast: Vec::new(),
             }
         }
     };
 
+    let day_label = weather
+        .snapshot
+        .observation_time
+        .as_ref()
+        .map(|ts| ts.format("%A").to_string())
+        .unwrap_or_else(|| "Today".to_string());
+
     let template = RenderTemplate {
-        timestamp: snapshot
+        timestamp: weather
+            .snapshot
             .observation_time
             .map(|ts| ts.format("%Y-%m-%d %H:%M").to_string()),
-        coords,
-        snapshot: snapshot.clone(),
+        snapshot: weather.snapshot.clone(),
+        forecast: weather.forecast.clone(),
+        day_label,
         battery_level: params.battery_level,
         is_charging: params.is_charging,
     };
