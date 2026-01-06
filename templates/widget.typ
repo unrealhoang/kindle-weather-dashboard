@@ -106,7 +106,7 @@
         spacing: 6pt,
         text(12pt, fill: c-muted)[#data.condition],
         bold(data.temp, size: 40pt),
-        text(11pt, fill: c-muted)[Real feel #data."real-feel"],
+        text(11pt, fill: c-muted)[Real feel #data.real-feel],
       ),
       align(right, text(60pt)[#data.icon]),
     )
@@ -118,22 +118,20 @@
       gutter: 10pt,
       pill([#data.icon], "Conditions", data.condition),
       pill([🌡️], "Temperature", data.temp),
-      pill([🌡️], "Feels Like", data."real-feel"),
+      pill([🌡️], "Feels Like", data.real-feel),
       pill([💧], "Humidity", data.humidity),
     )
 
     #v(18pt)
 
-    #bold([#data."hourly-title"])
+    #bold([#data.hourly-title])
 
     #v(10pt)
 
     #grid(
       columns: (1fr, 1fr, 1fr, 1fr),
       gutter: 10pt,
-      #for h in data.hours [
-        hour-card(h.time, h.temp, h.rain)
-      ],
+      ..data.hours.map(h => hour-card(h.time, h.temp, h.rain))
     )
 
     #v(10pt)
