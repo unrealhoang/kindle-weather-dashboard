@@ -23,7 +23,9 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod render;
+mod wanikani;
 use crate::render::render_widget;
+use crate::wanikani::{WanikaniClient, WanikaniKanji};
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
 const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
@@ -32,6 +34,7 @@ const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
 struct AppState {
     client: WeatherClient,
     config: DashboardConfig,
+    wanikani: WanikaniClient,
 }
 
 #[derive(Clone)]
@@ -276,6 +279,19 @@ struct WidgetTemplate {
     hourly_cards: Vec<HourlyCardTemplate>,
 }
 
+#[derive(Template)]
+#[template(path = "wanikani.typ", escape = "none")]
+struct WanikaniTemplate {
+    width: u32,
+    height: u32,
+    entries: Vec<WanikaniEntry>,
+}
+
+struct WanikaniEntry {
+    pub kanji: String,
+    pub meaning: String,
+}
+
 struct HourlyCardTemplate {
     time: String,
     temperature: String,
@@ -347,11 +363,13 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         client: WeatherClient::new(),
         config: DashboardConfig::from_env(),
+        wanikani: WanikaniClient::new(),
     });
 
     let app = Router::new()
         .route("/", get(render_index))
         .route("/render/{latitude}/{longitude}", get(render_image))
+        .route("/wanikani", get(render_wanikani_image))
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
@@ -446,26 +464,24 @@ async fn render_image(
         params.is_charging,
     );
 
-    let rgba = render_widget(&typst_source, 2.0).map_err(internal_error_anyhow)?;
-    let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
-        DynamicImage::ImageRgba8(rgba).into_luma8().into();
+    render_typst_document(typst_source)
+}
 
-    let mut bytes: Vec<u8> = Vec::new();
-    DynamicImage::ImageLuma8(grayscale)
-        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
-        .map_err(internal_error)?;
+async fn render_wanikani_image(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<RenderParams>,
+) -> Result<Response, Response> {
+    let dims = state.config.dimensions(&params);
+    let kanji = match state.wanikani.fetch_pending_kanji(6).await {
+        Ok(list) => list,
+        Err(err) => {
+            error!(?err, "failed to fetch WaniKani data; showing placeholders");
+            Vec::new()
+        }
+    };
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        header::HeaderValue::from_static("image/png"),
-    );
-    headers.insert(
-        header::CACHE_CONTROL,
-        header::HeaderValue::from_static("no-store, max-age=0"),
-    );
-
-    Ok((headers, bytes).into_response())
+    let typst_source = build_wanikani_document(dims, &kanji);
+    render_typst_document(typst_source)
 }
 
 fn weather_description(code: &i32) -> &'static str {
@@ -555,6 +571,55 @@ fn build_widget_document(
     template
         .render()
         .expect("failed to render Typst widget template")
+}
+
+fn build_wanikani_document(dims: (u32, u32), kanji: &[WanikaniKanji]) -> String {
+    let mut entries: Vec<WanikaniEntry> = kanji
+        .iter()
+        .take(6)
+        .map(|item| WanikaniEntry {
+            kanji: item.character.clone(),
+            meaning: item.meaning.clone(),
+        })
+        .collect();
+
+    while entries.len() < 6 {
+        entries.push(WanikaniEntry {
+            kanji: "--".to_string(),
+            meaning: "(no pending reviews)".to_string(),
+        });
+    }
+
+    WanikaniTemplate {
+        width: dims.0,
+        height: dims.1,
+        entries,
+    }
+    .render()
+    .expect("failed to render WaniKani Typst widget")
+}
+
+fn render_typst_document(typst_source: String) -> Result<Response, Response> {
+    let rgba = render_widget(&typst_source, 2.0).map_err(internal_error_anyhow)?;
+    let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
+        DynamicImage::ImageRgba8(rgba).into_luma8().into();
+
+    let mut bytes: Vec<u8> = Vec::new();
+    DynamicImage::ImageLuma8(grayscale)
+        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+        .map_err(internal_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("image/png"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store, max-age=0"),
+    );
+
+    Ok((headers, bytes).into_response())
 }
 
 fn internal_error<E: std::error::Error>(err: E) -> Response {
