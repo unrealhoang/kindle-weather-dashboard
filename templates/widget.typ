@@ -16,6 +16,24 @@
 #let c-line = rgb("#e5e7eb")
 #let c-pill = rgb("#f3f7ff")
 
+#let condition-emoji = (
+  "Clear sky": "☀️",
+  "Mostly clear": "🌤️",
+  "Overcast": "☁️",
+  "Fog": "🌫️",
+  "Drizzle": "🌦️",
+  "Freezing drizzle": "🌧️❄️",
+  "Rain": "🌧️",
+  "Freezing rain": "🌧️🧊",
+  "Snowfall": "🌨️",
+  "Snow grains": "❄️",
+  "Rain showers": "🌦️",
+  "Snow showers": "🌨️",
+  "Thunderstorm": "⛈️",
+  "Thunderstorm with hail": "⛈️🧊",
+  "Unknown": "❓",
+)
+
 #let label(t) = text(9pt, fill: c-muted)[#t]
 #let bold(t, size: 11pt) = text(size, weight: "bold")[#t]
 
@@ -57,87 +75,99 @@
   )
 ]
 
-#let weather-card(
-  day: "Tuesday",
-  datetime: "2026-01-06 11:00",
-  condition: "Clear sky",
-  temp: "6°C",
-  real-feel: "2°C",
-  humidity: "38%",
-  battery: "Battery 75% (charging)",
-  updated: "Updated 2026-01-06 11:00",
-) = rect(
-  fill: c-card,
-  stroke: none,
-  radius: 28pt,
-  inset: 28pt,
-)[
-  #grid(
-    columns: (1fr, 1fr),
-    gutter: 12pt,
-    align: (left, right),
-    bold(day, size: 14pt),
-    text(11pt, fill: c-muted)[#datetime],
-  )
+#let condition-icon(condition) = if condition-emoji.keys().contains(condition) {
+  condition-emoji.at(condition)
+} else {
+  condition-emoji.at("Unknown")
+}
 
-  #v(10pt)
+#let weather-card(data) = {
+  rect(
+    fill: c-card,
+    stroke: none,
+    radius: 28pt,
+    inset: 28pt,
+  )[
+    #grid(
+      columns: (1fr, 1fr),
+      gutter: 12pt,
+      align: (left, right),
+      bold(data.day, size: 14pt),
+      text(11pt, fill: c-muted)[#data.datetime],
+    )
 
-  #grid(
-    columns: (1.2fr, 1fr),
-    gutter: 10pt,
-    align: (left, right),
-    stack(
-      spacing: 6pt,
-      text(12pt, fill: c-muted)[#condition],
-      bold(temp, size: 40pt),
-      text(11pt, fill: c-muted)[Real feel #real-feel],
-    ),
-    align(right, text(60pt)[⛅]),
-  )
+    #v(10pt)
 
-  #v(10pt)
+    #grid(
+      columns: (1.2fr, 1fr),
+      gutter: 10pt,
+      align: (left, right),
+      stack(
+        spacing: 6pt,
+        text(12pt, fill: c-muted)[#data.condition],
+        bold(data.temp, size: 40pt),
+        text(11pt, fill: c-muted)[Real feel #data."real-feel"],
+      ),
+      align(right, text(60pt)[#data.icon]),
+    )
 
-  #grid(
-    columns: (1fr, 1fr, 1fr, 1fr),
-    gutter: 10pt,
-    pill([⛅], "Conditions", condition),
-    pill([🌡️], "Temperature", temp),
-    pill([🌡️], "Feels Like", real-feel),
-    pill([💧], "Humidity", humidity),
-  )
+    #v(10pt)
 
-  #v(18pt)
+    #grid(
+      columns: (1fr, 1fr, 1fr, 1fr),
+      gutter: 10pt,
+      pill([#data.icon], "Conditions", data.condition),
+      pill([🌡️], "Temperature", data.temp),
+      pill([🌡️], "Feels Like", data."real-feel"),
+      pill([💧], "Humidity", data.humidity),
+    )
 
-  #bold([Today · Next 8 hours (every 2 hours)])
+    #v(18pt)
 
-  #v(10pt)
+    #bold([#data."hourly-title"])
 
-  #grid(
-    columns: (1fr, 1fr, 1fr, 1fr),
-    gutter: 10pt,
-{% for card in hourly_cards %}
-    hour-card("{{ card.time }}", "{{ card.temperature }}", "{{ card.rain }}"),
-{% endfor %}
-  )
+    #v(10pt)
 
-  #v(10pt)
+    #grid(
+      columns: (1fr, 1fr, 1fr, 1fr),
+      gutter: 10pt,
+      #for h in data.hours [
+        hour-card(h.time, h.temp, h.rain)
+      ],
+    )
 
-  #grid(
-    columns: (1fr, 1fr),
-    gutter: 12pt,
-    align: (left, right),
-    text(10pt, fill: c-muted)[#battery],
-    text(10pt, fill: c-muted)[#updated],
-  )
-]
+    #v(10pt)
 
-#align(center, weather-card(
+    #grid(
+      columns: (1fr, 1fr),
+      gutter: 12pt,
+      align: (left, right),
+      text(10pt, fill: c-muted)[#data.battery],
+      text(10pt, fill: c-muted)[#data.updated],
+    )
+  ]
+}
+
+#let weather-data = (
   day: "{{ day_label }}",
   datetime: "{{ datetime_label }}",
+
   condition: "{{ condition }}",
   temp: "{{ temperature }}",
   real-feel: "{{ feels_like }}",
   humidity: "{{ humidity }}",
+  icon: condition-icon("{{ condition }}"),
+
+  hourly-title: "Today · Next 8 hours (every 2 hours)",
+
+  hours: (
+{% for card in hourly_cards %}
+    (time: "{{ card.time }}", temp: "{{ card.temperature }}", rain: "{{ card.rain }}"),
+{% endfor %}
+  ),
+
   battery: "{{ battery }}",
   updated: "{{ updated }}",
-))
+)
+
+#align(center, weather-card(weather-data))
