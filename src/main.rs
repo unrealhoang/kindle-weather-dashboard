@@ -264,8 +264,8 @@ struct IndexTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "widget.typ", escape = "none")]
-struct WidgetTemplate {
+#[template(path = "dashboard.typ", escape = "none")]
+struct DashboardTemplate {
     width: u32,
     height: u32,
     day_label: String,
@@ -277,13 +277,6 @@ struct WidgetTemplate {
     battery: String,
     updated: String,
     hourly_cards: Vec<HourlyCardTemplate>,
-}
-
-#[derive(Template)]
-#[template(path = "wanikani.typ", escape = "none")]
-struct WanikaniTemplate {
-    width: u32,
-    height: u32,
     entries: Vec<WanikaniEntry>,
 }
 
@@ -369,7 +362,6 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(render_index))
         .route("/render/{latitude}/{longitude}", get(render_image))
-        .route("/wanikani", get(render_wanikani_image))
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
@@ -456,22 +448,6 @@ async fn render_image(
         .map(|ts| ts.format("%A").to_string())
         .unwrap_or_else(|| "Today".to_string());
 
-    let typst_source = build_widget_document(
-        (dims.0 / 2, dims.1 / 2),
-        &weather,
-        &day_label,
-        params.battery_level,
-        params.is_charging,
-    );
-
-    render_typst_document(typst_source)
-}
-
-async fn render_wanikani_image(
-    State(state): State<Arc<AppState>>,
-    Query(params): Query<RenderParams>,
-) -> Result<Response, Response> {
-    let dims = state.config.dimensions(&params);
     let kanji = match state.wanikani.fetch_pending_kanji(6).await {
         Ok(list) => list,
         Err(err) => {
@@ -480,7 +456,15 @@ async fn render_wanikani_image(
         }
     };
 
-    let typst_source = build_wanikani_document(dims, &kanji);
+    let typst_source = build_dashboard_document(
+        (dims.0 / 2, dims.1 / 2),
+        &weather,
+        &day_label,
+        params.battery_level,
+        params.is_charging,
+        &kanji,
+    );
+
     render_typst_document(typst_source)
 }
 
@@ -504,12 +488,13 @@ fn weather_description(code: &i32) -> &'static str {
     }
 }
 
-fn build_widget_document(
+fn build_dashboard_document(
     dims: (u32, u32),
     weather: &WeatherData,
     day_label: &str,
     battery_level: Option<u8>,
     is_charging: Option<bool>,
+    kanji: &[WanikaniKanji],
 ) -> String {
     let condition = weather_description(&weather.snapshot.weather_code);
     let temperature = format!("{:.0}°C", weather.snapshot.temperature_c.round());
@@ -554,26 +539,6 @@ fn build_widget_document(
         });
     }
 
-    let template = WidgetTemplate {
-        width: dims.0,
-        height: dims.1,
-        day_label: day_label.to_string(),
-        datetime_label,
-        condition: condition.to_string(),
-        temperature,
-        feels_like,
-        humidity,
-        battery,
-        updated,
-        hourly_cards,
-    };
-
-    template
-        .render()
-        .expect("failed to render Typst widget template")
-}
-
-fn build_wanikani_document(dims: (u32, u32), kanji: &[WanikaniKanji]) -> String {
     let mut entries: Vec<WanikaniEntry> = kanji
         .iter()
         .take(6)
@@ -590,13 +555,24 @@ fn build_wanikani_document(dims: (u32, u32), kanji: &[WanikaniKanji]) -> String 
         });
     }
 
-    WanikaniTemplate {
+    let template = DashboardTemplate {
         width: dims.0,
         height: dims.1,
+        day_label: day_label.to_string(),
+        datetime_label,
+        condition: condition.to_string(),
+        temperature,
+        feels_like,
+        humidity,
+        battery,
+        updated,
+        hourly_cards,
         entries,
-    }
-    .render()
-    .expect("failed to render WaniKani Typst widget")
+    };
+
+    template
+        .render()
+        .expect("failed to render Typst widget template")
 }
 
 fn render_typst_document(typst_source: String) -> Result<Response, Response> {
