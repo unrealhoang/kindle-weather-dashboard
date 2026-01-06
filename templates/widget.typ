@@ -1,6 +1,6 @@
 #set page(
-  width: {width}pt,
-  height: {height}pt,
+  width: {{ width }}pt,
+  height: {{ height }}pt,
   fill: rgb("#eaf1fb"),
   margin: 24pt,
 )
@@ -115,7 +115,9 @@
   #grid(
     columns: (1fr, 1fr, 1fr, 1fr),
     gutter: 12pt,
-{hourly_cards}
+{% for card in hourly_cards %}
+    hour-card("{{ card.time }}", "{{ card.temperature }}", "{{ card.rain }}"),
+{% endfor %}
   )
 
   #v(18pt)
@@ -130,12 +132,12 @@
 ]
 
 #align(center, weather-card(
-  day: "{day_label}",
-  datetime: "{datetime_label}",
-  condition: "{condition}",
-  temp: "{temperature}",
-  real-feel: "{feels_like}",
-  humidity: "{humidity}",
-  battery: "{battery}",
-  updated: "{updated}",
+  day: "{{ day_label }}",
+  datetime: "{{ datetime_label }}",
+  condition: "{{ condition }}",
+  temp: "{{ temperature }}",
+  real-feel: "{{ feels_like }}",
+  humidity: "{{ humidity }}",
+  battery: "{{ battery }}",
+  updated: "{{ updated }}",
 ))

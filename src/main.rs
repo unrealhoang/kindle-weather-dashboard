@@ -224,6 +224,28 @@ struct IndexTemplate {
     height: u32,
 }
 
+#[derive(Template)]
+#[template(path = "widget.typ", escape = "none")]
+struct WidgetTemplate {
+    width: u32,
+    height: u32,
+    day_label: String,
+    datetime_label: String,
+    condition: String,
+    temperature: String,
+    feels_like: String,
+    humidity: String,
+    battery: String,
+    updated: String,
+    hourly_cards: Vec<HourlyCardTemplate>,
+}
+
+struct HourlyCardTemplate {
+    time: String,
+    temperature: String,
+    rain: String,
+}
+
 #[derive(Deserialize)]
 struct OpenMeteoResponse {
     current: OpenMeteoCurrent,
@@ -428,40 +450,42 @@ fn build_widget_document(
         .map(|ts| format!("Updated {}", ts.format("%Y-%m-%d %H:%M")))
         .unwrap_or_else(|| "Updated --".to_string());
 
-    let mut hourly_cards = String::new();
-    for period in weather.forecast.iter().take(4) {
-        hourly_cards.push_str(&format!(
-            "    hour-card(\"{}\", \"{:.0}°C\", \"{:.0}%\"),\n",
-            period.time.format("%I:%M %p"),
-            period.temperature_c.round(),
-            period.precipitation_probability.round(),
-        ));
+    let mut hourly_cards: Vec<HourlyCardTemplate> = weather
+        .forecast
+        .iter()
+        .take(4)
+        .map(|period| HourlyCardTemplate {
+            time: period.time.format("%I:%M %p").to_string(),
+            temperature: format!("{:.0}°C", period.temperature_c.round()),
+            rain: format!("{:.0}%", period.precipitation_probability.round()),
+        })
+        .collect();
+
+    while hourly_cards.len() < 4 {
+        hourly_cards.push(HourlyCardTemplate {
+            time: "--".to_string(),
+            temperature: "--".to_string(),
+            rain: "--".to_string(),
+        });
     }
 
-    while hourly_cards.lines().count() < 4 {
-        hourly_cards.push_str("    hour-card(\"--\", \"--\", \"--\"),\n");
-    }
+    let template = WidgetTemplate {
+        width: dims.0,
+        height: dims.1,
+        day_label: day_label.to_string(),
+        datetime_label,
+        condition: condition.to_string(),
+        temperature,
+        feels_like,
+        humidity,
+        battery,
+        updated,
+        hourly_cards,
+    };
 
-    let template = include_str!("../templates/widget.typ");
-
-    let mut document = template.to_string();
-    for (key, value) in [
-        ("{width}", dims.0.to_string()),
-        ("{height}", dims.1.to_string()),
-        ("{day_label}", day_label.to_string()),
-        ("{datetime_label}", datetime_label),
-        ("{condition}", condition.to_string()),
-        ("{temperature}", temperature),
-        ("{feels_like}", feels_like),
-        ("{humidity}", humidity),
-        ("{battery}", battery),
-        ("{updated}", updated),
-        ("{hourly_cards}", hourly_cards),
-    ] {
-        document = document.replace(key, &value);
-    }
-
-    document
+    template
+        .render()
+        .expect("failed to render Typst widget template")
 }
 
 fn internal_error<E: std::error::Error>(err: E) -> Response {
