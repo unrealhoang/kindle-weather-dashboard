@@ -5,7 +5,7 @@ use askama::Template;
 use askama_web::WebTemplate;
 use axum::{
     Router,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -66,10 +66,10 @@ impl DashboardConfig {
         }
     }
 
-    fn coordinates(&self, params: &RenderParams) -> Coordinates {
+    fn coordinates(&self, path: &CoordinatesPath) -> Coordinates {
         Coordinates {
-            latitude: params.latitude.unwrap_or(self.latitude),
-            longitude: params.longitude.unwrap_or(self.longitude),
+            latitude: path.latitude,
+            longitude: path.longitude,
         }
     }
 
@@ -177,8 +177,6 @@ impl WeatherClient {
 
 #[derive(Deserialize)]
 struct RenderParams {
-    latitude: Option<f64>,
-    longitude: Option<f64>,
     #[serde(rename = "batteryLevel")]
     battery_level: Option<u8>,
     #[serde(rename = "isCharging")]
@@ -189,6 +187,12 @@ struct RenderParams {
 
 #[derive(Clone, Copy)]
 struct Coordinates {
+    latitude: f64,
+    longitude: f64,
+}
+
+#[derive(Deserialize)]
+struct CoordinatesPath {
     latitude: f64,
     longitude: f64,
 }
@@ -283,7 +287,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(render_index))
-        .route("/render", get(render_image))
+        .route("/render/{latitude}/{longitude}", get(render_image))
         .nest_service("/assets", ServeDir::new("assets"))
         .with_state(state);
 
@@ -337,9 +341,10 @@ async fn render_index(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
 async fn render_image(
     State(state): State<Arc<AppState>>,
+    Path(path): Path<CoordinatesPath>,
     Query(params): Query<RenderParams>,
 ) -> Result<Response, Response> {
-    let coords = state.config.coordinates(&params);
+    let coords = state.config.coordinates(&path);
     let dims = state.config.dimensions(&params);
 
     let weather = match state.client.fetch_weather_data(coords).await {
