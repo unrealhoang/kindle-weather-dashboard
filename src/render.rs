@@ -19,6 +19,8 @@ static DEJAVUSANS_BOLD_FONT: Lazy<Bytes> =
     Lazy::new(|| Bytes::new(include_bytes!("../assets/DejaVuSans-Bold.ttf").as_slice()));
 static NOTOEMOJI_FONT: Lazy<Bytes> =
     Lazy::new(|| Bytes::new(include_bytes!("../assets/NotoEmoji-Regular.ttf").as_slice()));
+static NOTOSANSJP_BOLD_FONT: Lazy<Bytes> =
+    Lazy::new(|| Bytes::new(include_bytes!("../assets/NotoSansJP-Bold.ttf").as_slice()));
 
 #[derive(RustEmbed)]
 #[folder = "templates"]
@@ -67,6 +69,7 @@ impl MemoryWorld {
 
         let mut fonts: Vec<Font> = Font::iter(DEJAVUSANS_FONT.clone()).collect();
         fonts.extend(Font::iter(DEJAVUSANS_BOLD_FONT.clone()));
+        fonts.extend(Font::iter(NOTOSANSJP_BOLD_FONT.clone()));
         fonts.extend(Font::iter(NOTOEMOJI_FONT.clone()));
 
         let book = LazyHash::new(FontBook::from_fonts(fonts.iter()));

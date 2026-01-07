@@ -265,7 +265,6 @@ struct IndexTemplate {
     height: u32,
 }
 
-
 #[derive(Deserialize)]
 struct OpenMeteoResponse {
     current: OpenMeteoCurrent,
@@ -577,10 +576,11 @@ fn build_dashboard_inputs(
 }
 
 fn render_typst_document(inputs: Dict) -> Result<Response, Response> {
-    let typst_source = get_template(DASHBOARD_TEMPLATE)
-        .ok_or_else(|| internal_error_anyhow(anyhow!("template not found: {DASHBOARD_TEMPLATE}")))?;
-    let rgba =
-        render_widget(&typst_source, DASHBOARD_TEMPLATE, 2.0, inputs).map_err(internal_error_anyhow)?;
+    let typst_source = get_template(DASHBOARD_TEMPLATE).ok_or_else(|| {
+        internal_error_anyhow(anyhow!("template not found: {DASHBOARD_TEMPLATE}"))
+    })?;
+    let rgba = render_widget(&typst_source, DASHBOARD_TEMPLATE, 2.0, inputs)
+        .map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
 

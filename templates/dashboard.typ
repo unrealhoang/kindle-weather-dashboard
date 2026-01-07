@@ -19,7 +19,6 @@
 
 #stack(
   spacing: 18pt,
-  align: center,
   render-weather(weather-data),
   render-wanikani(wanikani-data),
 )

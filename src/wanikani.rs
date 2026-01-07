@@ -26,7 +26,7 @@ impl WanikaniClient {
 
         let mut assignments: Vec<Assignment> = Vec::new();
         let mut next_url = Some(
-            "https://api.wanikani.com/v2/assignments?subject_types=kanji&available_before=now"
+            "https://api.wanikani.com/v2/assignments?subject_types=kanji&immediately_available_for_review=true"
                 .to_string(),
         );
 
@@ -54,6 +54,7 @@ impl WanikaniClient {
 
         let subject_ids: Vec<String> = assignments
             .into_iter()
+            .rev()
             .take(limit)
             .map(|a| a.data.subject_id.to_string())
             .collect();
