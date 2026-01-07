@@ -2,7 +2,8 @@ use anyhow::Context;
 use chrono::{Datelike, Duration, Local, Timelike, Utc};
 use image::{ImageBuffer, Rgba};
 use once_cell::sync::Lazy;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime};
 use typst::syntax::{FileId, Source, VirtualPath};
@@ -20,9 +21,11 @@ static NOTOEMOJI_FONT: Lazy<Bytes> =
 
 pub fn render_widget(
     document: &str,
+    main_path: &str,
+    template_root: &Path,
     pixel_per_pt: f32,
 ) -> anyhow::Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-    let world = MemoryWorld::new(document)?;
+    let world = MemoryWorld::new(document, main_path, template_root)?;
     let warned = typst::compile::<typst::layout::PagedDocument>(&world);
 
     if !warned.warnings.is_empty() {
@@ -45,11 +48,12 @@ struct MemoryWorld {
     library: LazyHash<Library>,
     book: LazyHash<FontBook>,
     fonts: Vec<Font>,
+    template_root: PathBuf,
 }
 
 impl MemoryWorld {
-    fn new(source_text: &str) -> anyhow::Result<Self> {
-        let main_id = FileId::new(None, VirtualPath::new("main.typ"));
+    fn new(source_text: &str, main_path: &str, template_root: &Path) -> anyhow::Result<Self> {
+        let main_id = FileId::new(None, VirtualPath::new(main_path));
         let source = Source::new(main_id, source_text.to_string());
 
         let mut fonts: Vec<Font> = Font::iter(DEJAVUSANS_FONT.clone()).collect();
@@ -65,7 +69,15 @@ impl MemoryWorld {
             library,
             book,
             fonts,
+            template_root: template_root.to_path_buf(),
         })
+    }
+
+    fn resolve_path(&self, vpath: &VirtualPath) -> PathBuf {
+        let rooted = vpath.as_rooted_path();
+        let relative = rooted.strip_prefix("/").unwrap_or(rooted);
+
+        self.template_root.join(relative)
     }
 }
 
@@ -86,9 +98,10 @@ impl World for MemoryWorld {
         if id == self.source.id() {
             Ok(self.source.clone())
         } else {
-            Err(FileError::NotFound(PathBuf::from(
-                id.vpath().as_rooted_path(),
-            )))
+            let path = self.resolve_path(id.vpath());
+            fs::read_to_string(&path)
+                .map(|contents| Source::new(id, contents))
+                .map_err(|_| FileError::NotFound(path))
         }
     }
 
@@ -96,9 +109,10 @@ impl World for MemoryWorld {
         if id == self.source.id() {
             Ok(Bytes::from_string(self.source.text().to_string()))
         } else {
-            Err(FileError::NotFound(PathBuf::from(
-                id.vpath().as_rooted_path(),
-            )))
+            let path = self.resolve_path(id.vpath());
+            let data = fs::read(&path).map_err(|_| FileError::NotFound(path.clone()))?;
+
+            Ok(Bytes::new(data))
         }
     }
 

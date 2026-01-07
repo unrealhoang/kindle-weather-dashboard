@@ -29,6 +29,8 @@ use crate::wanikani::{WanikaniClient, WanikaniKanji};
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
 const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
+const TEMPLATE_ROOT: &str = "templates";
+const DASHBOARD_TEMPLATE: &str = "dashboard.typ";
 
 #[derive(Clone)]
 struct AppState {
@@ -268,16 +270,8 @@ struct IndexTemplate {
 struct DashboardTemplate {
     width: u32,
     height: u32,
-    day_label: String,
-    datetime_label: String,
-    condition: String,
-    temperature: String,
-    feels_like: String,
-    humidity: String,
-    battery: String,
-    updated: String,
-    hourly_cards: Vec<HourlyCardTemplate>,
-    entries: Vec<WanikaniEntry>,
+    weather_data: WeatherTemplateData,
+    wanikani_data: WanikaniTemplateData,
 }
 
 struct WanikaniEntry {
@@ -289,6 +283,22 @@ struct HourlyCardTemplate {
     time: String,
     temperature: String,
     rain: String,
+}
+
+struct WeatherTemplateData {
+    day_label: String,
+    datetime_label: String,
+    condition: String,
+    temperature: String,
+    feels_like: String,
+    humidity: String,
+    battery: String,
+    updated: String,
+    hourly_cards: Vec<HourlyCardTemplate>,
+}
+
+struct WanikaniTemplateData {
+    entries: Vec<WanikaniEntry>,
 }
 
 #[derive(Deserialize)]
@@ -555,9 +565,7 @@ fn build_dashboard_document(
         });
     }
 
-    let template = DashboardTemplate {
-        width: dims.0,
-        height: dims.1,
+    let weather_data = WeatherTemplateData {
         day_label: day_label.to_string(),
         datetime_label,
         condition: condition.to_string(),
@@ -567,7 +575,15 @@ fn build_dashboard_document(
         battery,
         updated,
         hourly_cards,
-        entries,
+    };
+
+    let wanikani_data = WanikaniTemplateData { entries };
+
+    let template = DashboardTemplate {
+        width: dims.0,
+        height: dims.1,
+        weather_data,
+        wanikani_data,
     };
 
     template
@@ -576,7 +592,13 @@ fn build_dashboard_document(
 }
 
 fn render_typst_document(typst_source: String) -> Result<Response, Response> {
-    let rgba = render_widget(&typst_source, 2.0).map_err(internal_error_anyhow)?;
+    let rgba = render_widget(
+        &typst_source,
+        DASHBOARD_TEMPLATE,
+        std::path::Path::new(TEMPLATE_ROOT),
+        2.0,
+    )
+    .map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
 

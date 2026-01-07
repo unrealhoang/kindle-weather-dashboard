@@ -1,16 +1,3 @@
-#set page(
-  width: {{ width }}pt,
-  height: {{ height }}pt,
-  fill: rgb("#f2f4f7"),
-  margin: 24pt,
-)
-
-#set text(
-  font: "DejaVu Sans",
-  size: 14pt,
-  fill: rgb("#111827"),
-)
-
 #let card-bg = white
 #let card-border = rgb("#cbd5e1")
 #let muted = rgb("#4b5563")
@@ -29,15 +16,9 @@
   )
 ]
 
-#let entries-data = (
-{% for entry in entries %}
-  (kanji: "{{ entry.kanji }}", meaning: "{{ entry.meaning }}"),
-{% endfor %}
-)
-
-#grid(
+#let render-wanikani(data) = grid(
   columns: (1fr, 1fr, 1fr),
   rows: (1fr, 1fr),
   gutter: 10pt,
-  ..entries-data.map(entry => kanji-card(entry)),
+  ..data.entries.map(entry => kanji-card(entry)),
 )
