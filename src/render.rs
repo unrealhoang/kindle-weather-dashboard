@@ -6,7 +6,7 @@ use rust_embed::RustEmbed;
 use std::path::PathBuf;
 use std::str;
 use typst::diag::{FileError, FileResult};
-use typst::foundations::{Bytes, Datetime};
+use typst::foundations::{Bytes, Datetime, Dict};
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
@@ -24,12 +24,18 @@ static NOTOEMOJI_FONT: Lazy<Bytes> =
 #[folder = "templates"]
 struct TemplateAssets;
 
+pub fn get_template(name: &str) -> Option<String> {
+    TemplateAssets::get(name)
+        .and_then(|data| std::str::from_utf8(&data.data).ok().map(|s| s.to_string()))
+}
+
 pub fn render_widget(
     document: &str,
     main_path: &str,
     pixel_per_pt: f32,
+    inputs: Dict,
 ) -> anyhow::Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-    let world = MemoryWorld::new(document, main_path)?;
+    let world = MemoryWorld::new(document, main_path, inputs)?;
     let warned = typst::compile::<typst::layout::PagedDocument>(&world);
 
     if !warned.warnings.is_empty() {
@@ -55,7 +61,7 @@ struct MemoryWorld {
 }
 
 impl MemoryWorld {
-    fn new(source_text: &str, main_path: &str) -> anyhow::Result<Self> {
+    fn new(source_text: &str, main_path: &str, inputs: Dict) -> anyhow::Result<Self> {
         let main_id = FileId::new(None, VirtualPath::new(main_path));
         let source = Source::new(main_id, source_text.to_string());
 
@@ -65,7 +71,7 @@ impl MemoryWorld {
 
         let book = LazyHash::new(FontBook::from_fonts(fonts.iter()));
 
-        let library = LazyHash::new(Library::builder().build());
+        let library = LazyHash::new(Library::builder().with_inputs(inputs).build());
 
         Ok(Self {
             source,

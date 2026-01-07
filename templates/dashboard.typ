@@ -2,8 +2,8 @@
 #import "wanikani.typ": render-wanikani
 
 #set page(
-  width: {{ width }}pt,
-  height: {{ height }}pt,
+  width: sys.inputs.width * 1pt,
+  height: sys.inputs.height * 1pt,
   fill: rgb("#f2f4f7"),
   margin: 12pt,
 )
@@ -14,29 +14,8 @@
   fill: rgb("#111827"),
 )
 
-#let weather-data = (
-  day: "{{ weather_data.day_label }}",
-  datetime: "{{ weather_data.datetime_label }}",
-  condition: "{{ weather_data.condition }}",
-  temperature: "{{ weather_data.temperature }}",
-  real_feel: "{{ weather_data.feels_like }}",
-  humidity: "{{ weather_data.humidity }}",
-  battery: "{{ weather_data.battery }}",
-  updated: "{{ weather_data.updated }}",
-  hours: (
-{% for card in weather_data.hourly_cards %}
-    (time: "{{ card.time }}", temperature: "{{ card.temperature }}", rain: "{{ card.rain }}"),
-{% endfor %}
-  ),
-)
-
-#let wanikani-data = (
-  entries: (
-{% for entry in wanikani_data.entries %}
-    (kanji: "{{ entry.kanji }}", meaning: "{{ entry.meaning }}"),
-{% endfor %}
-  ),
-)
+#let weather-data = sys.inputs.weather-data
+#let wanikani-data = sys.inputs.wanikani-data
 
 #stack(
   spacing: 18pt,
