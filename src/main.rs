@@ -591,12 +591,8 @@ fn build_dashboard_document(
 }
 
 fn render_typst_document(typst_source: String) -> Result<Response, Response> {
-    let rgba = render_widget(
-        &typst_source,
-        DASHBOARD_TEMPLATE,
-        2.0,
-    )
-    .map_err(internal_error_anyhow)?;
+    let rgba =
+        render_widget(&typst_source, DASHBOARD_TEMPLATE, 2.0).map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
 
