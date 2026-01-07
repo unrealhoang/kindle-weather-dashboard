@@ -36,15 +36,15 @@
 
 #let hour-col(time, temp, rain) = rect(
   fill: c-card,
-  stroke: 1.2pt + c-line,
+  stroke: 1.8pt + c-line,
   radius: 12pt,
   inset: (x: 10pt, y: 8pt),
 )[
   #stack(
     spacing: 6pt,
-    [#time],
-    bold(temp, size: 20pt),
-    dim([☔ #bold(rain, size: 16pt)], size: 16pt),
+    text(size: 16pt)[#time],
+    bold(temp, size: 24pt),
+    dim([☔ *#rain*], size: 18pt),
   )
 ]
 
@@ -60,13 +60,13 @@
     align: (left, right),
     stack(
       spacing: 8pt,
-      bold(data.day, size: 24pt),
-      dim(data.datetime, size: 12pt),
+      bold(data.day, size: 32pt),
+      dim(data.datetime, size: 16pt),
     ),
     stack(
-      spacing: 2pt,
-      dim(data.battery, size: 12pt),
-      dim(data.updated, size: 12pt),
+      spacing: 6pt,
+      dim(data.battery, size: 14pt),
+      dim(data.updated, size: 14pt),
     ),
   )
 
@@ -75,18 +75,18 @@
   #grid(
     columns: (auto, 30%, auto),
     gutter: 10pt,
-    align: (center, center, center),
+    align: center,
     stack(
-      spacing: 10pt,
-      emoji(condition-icon(data.condition), size: 72pt),
+      spacing: 16pt,
+      emoji(condition-icon(data.condition), size: 96pt),
       dim(data.condition, size: 18pt),
     ),
     [],
     stack(
       spacing: 4pt,
-      dim([Hum #bold(data.humidity, size: 20pt)], size: 20pt),
-      bold(data.temperature, size: 64pt),
-      dim([Feels #bold(data.real_feel, size: 20pt)], size: 20pt),
+      dim([Hum *#data.humidity*], size: 24pt),
+      bold(data.temperature, size: 90pt),
+      dim([Feels *#data.real_feel*], size: 24pt),
     ),
   )
 
@@ -94,6 +94,7 @@
 
   #grid(
     columns: (1fr, 1fr, 1fr, 1fr),
+    align: center,
     gutter: 4pt,
     ..data.hours.map(h => hour-col(h.time, h.temperature, h.rain))
   )

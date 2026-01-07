@@ -21,10 +21,11 @@ use tokio::signal;
 use tower_http::services::ServeDir;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
+use typst::foundations::{Array, Dict, IntoValue, Str, Value};
 
 mod render;
 mod wanikani;
-use crate::render::render_widget;
+use crate::render::{get_template, render_widget};
 use crate::wanikani::{WanikaniClient, WanikaniKanji};
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
@@ -264,42 +265,6 @@ struct IndexTemplate {
     height: u32,
 }
 
-#[derive(Template)]
-#[template(path = "dashboard.typ", escape = "none")]
-struct DashboardTemplate {
-    width: u32,
-    height: u32,
-    weather_data: WeatherTemplateData,
-    wanikani_data: WanikaniTemplateData,
-}
-
-struct WanikaniEntry {
-    pub kanji: String,
-    pub meaning: String,
-}
-
-struct HourlyCardTemplate {
-    time: String,
-    temperature: String,
-    rain: String,
-}
-
-struct WeatherTemplateData {
-    day_label: String,
-    datetime_label: String,
-    condition: String,
-    temperature: String,
-    feels_like: String,
-    humidity: String,
-    battery: String,
-    updated: String,
-    hourly_cards: Vec<HourlyCardTemplate>,
-}
-
-struct WanikaniTemplateData {
-    entries: Vec<WanikaniEntry>,
-}
-
 #[derive(Deserialize)]
 struct OpenMeteoResponse {
     current: OpenMeteoCurrent,
@@ -465,7 +430,7 @@ async fn render_image(
         }
     };
 
-    let typst_source = build_dashboard_document(
+    let inputs = build_dashboard_inputs(
         (dims.0 / 2, dims.1 / 2),
         &weather,
         &day_label,
@@ -474,7 +439,7 @@ async fn render_image(
         &kanji,
     );
 
-    render_typst_document(typst_source)
+    render_typst_document(inputs)
 }
 
 fn weather_description(code: &i32) -> &'static str {
@@ -497,14 +462,14 @@ fn weather_description(code: &i32) -> &'static str {
     }
 }
 
-fn build_dashboard_document(
+fn build_dashboard_inputs(
     dims: (u32, u32),
     weather: &WeatherData,
     day_label: &str,
     battery_level: Option<u8>,
     is_charging: Option<bool>,
     kanji: &[WanikaniKanji],
-) -> String {
+) -> Dict {
     let condition = weather_description(&weather.snapshot.weather_code);
     let temperature = format!("{:.0}°C", weather.snapshot.temperature_c.round());
     let feels_like = format!("{:.0}°C", weather.snapshot.feels_like_c.round());
@@ -529,70 +494,93 @@ fn build_dashboard_document(
         .map(|ts| format!("Updated {}", ts.format("%Y-%m-%d %H:%M")))
         .unwrap_or_else(|| "Updated --".to_string());
 
-    let mut hourly_cards: Vec<HourlyCardTemplate> = weather
+    // Build hourly forecast array
+    let mut hourly_cards: Vec<Value> = weather
         .forecast
         .iter()
         .take(4)
-        .map(|period| HourlyCardTemplate {
-            time: period.time.format("%I:%M %p").to_string(),
-            temperature: format!("{:.0}°C", period.temperature_c.round()),
-            rain: format!("{:.0}%", period.precipitation_probability.round()),
+        .map(|period| {
+            let mut card = Dict::new();
+            card.insert(
+                Str::from("time"),
+                period.time.format("%I:%M %p").to_string().into_value(),
+            );
+            card.insert(
+                Str::from("temperature"),
+                format!("{:.0}°C", period.temperature_c.round()).into_value(),
+            );
+            card.insert(
+                Str::from("rain"),
+                format!("{:.0}%", period.precipitation_probability.round()).into_value(),
+            );
+            card.into_value()
         })
         .collect();
 
+    // Pad to 4 cards if needed
     while hourly_cards.len() < 4 {
-        hourly_cards.push(HourlyCardTemplate {
-            time: "--".to_string(),
-            temperature: "--".to_string(),
-            rain: "--".to_string(),
-        });
+        let mut card = Dict::new();
+        card.insert(Str::from("time"), "--".into_value());
+        card.insert(Str::from("temperature"), "--".into_value());
+        card.insert(Str::from("rain"), "--".into_value());
+        hourly_cards.push(card.into_value());
     }
 
-    let mut entries: Vec<WanikaniEntry> = kanji
+    // Build wanikani entries array
+    let mut entries: Vec<Value> = kanji
         .iter()
         .take(6)
-        .map(|item| WanikaniEntry {
-            kanji: item.character.clone(),
-            meaning: item.meaning.clone(),
+        .map(|item| {
+            let mut entry = Dict::new();
+            entry.insert(Str::from("kanji"), item.character.clone().into_value());
+            entry.insert(Str::from("meaning"), item.meaning.clone().into_value());
+            entry.into_value()
         })
         .collect();
 
+    // Pad to 6 entries if needed
     while entries.len() < 6 {
-        entries.push(WanikaniEntry {
-            kanji: "--".to_string(),
-            meaning: "(no pending reviews)".to_string(),
-        });
+        let mut entry = Dict::new();
+        entry.insert(Str::from("kanji"), "--".into_value());
+        entry.insert(Str::from("meaning"), "(no pending reviews)".into_value());
+        entries.push(entry.into_value());
     }
 
-    let weather_data = WeatherTemplateData {
-        day_label: day_label.to_string(),
-        datetime_label,
-        condition: condition.to_string(),
-        temperature,
-        feels_like,
-        humidity,
-        battery,
-        updated,
-        hourly_cards,
-    };
+    // Build weather-data dict
+    let mut weather_data = Dict::new();
+    weather_data.insert(Str::from("day"), day_label.into_value());
+    weather_data.insert(Str::from("datetime"), datetime_label.into_value());
+    weather_data.insert(Str::from("condition"), condition.into_value());
+    weather_data.insert(Str::from("temperature"), temperature.into_value());
+    weather_data.insert(Str::from("real_feel"), feels_like.into_value());
+    weather_data.insert(Str::from("humidity"), humidity.into_value());
+    weather_data.insert(Str::from("battery"), battery.into_value());
+    weather_data.insert(Str::from("updated"), updated.into_value());
+    weather_data.insert(
+        Str::from("hours"),
+        Array::from_iter(hourly_cards).into_value(),
+    );
 
-    let wanikani_data = WanikaniTemplateData { entries };
+    // Build wanikani-data dict
+    let mut wanikani_data = Dict::new();
+    wanikani_data.insert(Str::from("entries"), Array::from_iter(entries).into_value());
 
-    let template = DashboardTemplate {
-        width: dims.0,
-        height: dims.1,
-        weather_data,
-        wanikani_data,
-    };
+    // Build root inputs dict
+    let mut inputs = Dict::new();
+    inputs.insert(Str::from("width"), (dims.0 as i64).into_value());
+    inputs.insert(Str::from("height"), (dims.1 as i64).into_value());
+    inputs.insert(Str::from("weather-data"), weather_data.into_value());
+    inputs.insert(Str::from("wanikani-data"), wanikani_data.into_value());
 
-    template
-        .render()
-        .expect("failed to render Typst widget template")
+    inputs
 }
 
-fn render_typst_document(typst_source: String) -> Result<Response, Response> {
-    let rgba =
-        render_widget(&typst_source, DASHBOARD_TEMPLATE, 2.0).map_err(internal_error_anyhow)?;
+fn render_typst_document(inputs: Dict) -> Result<Response, Response> {
+    let typst_source = get_template(DASHBOARD_TEMPLATE).ok_or_else(|| {
+        internal_error_anyhow(anyhow!("template not found: {DASHBOARD_TEMPLATE}"))
+    })?;
+    let rgba = render_widget(&typst_source, DASHBOARD_TEMPLATE, 2.0, inputs)
+        .map_err(internal_error_anyhow)?;
     let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
         DynamicImage::ImageRgba8(rgba).into_luma8().into();
 
