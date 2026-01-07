@@ -23,15 +23,19 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod render;
+mod wanikani;
 use crate::render::render_widget;
+use crate::wanikani::{WanikaniClient, WanikaniKanji};
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
 const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
+const DASHBOARD_TEMPLATE: &str = "dashboard.typ";
 
 #[derive(Clone)]
 struct AppState {
     client: WeatherClient,
     config: DashboardConfig,
+    wanikani: WanikaniClient,
 }
 
 #[derive(Clone)]
@@ -261,10 +265,26 @@ struct IndexTemplate {
 }
 
 #[derive(Template)]
-#[template(path = "widget.typ", escape = "none")]
-struct WidgetTemplate {
+#[template(path = "dashboard.typ", escape = "none")]
+struct DashboardTemplate {
     width: u32,
     height: u32,
+    weather_data: WeatherTemplateData,
+    wanikani_data: WanikaniTemplateData,
+}
+
+struct WanikaniEntry {
+    pub kanji: String,
+    pub meaning: String,
+}
+
+struct HourlyCardTemplate {
+    time: String,
+    temperature: String,
+    rain: String,
+}
+
+struct WeatherTemplateData {
     day_label: String,
     datetime_label: String,
     condition: String,
@@ -276,10 +296,8 @@ struct WidgetTemplate {
     hourly_cards: Vec<HourlyCardTemplate>,
 }
 
-struct HourlyCardTemplate {
-    time: String,
-    temperature: String,
-    rain: String,
+struct WanikaniTemplateData {
+    entries: Vec<WanikaniEntry>,
 }
 
 #[derive(Deserialize)]
@@ -347,6 +365,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         client: WeatherClient::new(),
         config: DashboardConfig::from_env(),
+        wanikani: WanikaniClient::new(),
     });
 
     let app = Router::new()
@@ -438,34 +457,24 @@ async fn render_image(
         .map(|ts| ts.format("%A").to_string())
         .unwrap_or_else(|| "Today".to_string());
 
-    let typst_source = build_widget_document(
+    let kanji = match state.wanikani.fetch_pending_kanji(6).await {
+        Ok(list) => list,
+        Err(err) => {
+            error!(?err, "failed to fetch WaniKani data; showing placeholders");
+            Vec::new()
+        }
+    };
+
+    let typst_source = build_dashboard_document(
         (dims.0 / 2, dims.1 / 2),
         &weather,
         &day_label,
         params.battery_level,
         params.is_charging,
+        &kanji,
     );
 
-    let rgba = render_widget(&typst_source, 2.0).map_err(internal_error_anyhow)?;
-    let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
-        DynamicImage::ImageRgba8(rgba).into_luma8().into();
-
-    let mut bytes: Vec<u8> = Vec::new();
-    DynamicImage::ImageLuma8(grayscale)
-        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
-        .map_err(internal_error)?;
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        header::HeaderValue::from_static("image/png"),
-    );
-    headers.insert(
-        header::CACHE_CONTROL,
-        header::HeaderValue::from_static("no-store, max-age=0"),
-    );
-
-    Ok((headers, bytes).into_response())
+    render_typst_document(typst_source)
 }
 
 fn weather_description(code: &i32) -> &'static str {
@@ -488,12 +497,13 @@ fn weather_description(code: &i32) -> &'static str {
     }
 }
 
-fn build_widget_document(
+fn build_dashboard_document(
     dims: (u32, u32),
     weather: &WeatherData,
     day_label: &str,
     battery_level: Option<u8>,
     is_charging: Option<bool>,
+    kanji: &[WanikaniKanji],
 ) -> String {
     let condition = weather_description(&weather.snapshot.weather_code);
     let temperature = format!("{:.0}°C", weather.snapshot.temperature_c.round());
@@ -538,9 +548,23 @@ fn build_widget_document(
         });
     }
 
-    let template = WidgetTemplate {
-        width: dims.0,
-        height: dims.1,
+    let mut entries: Vec<WanikaniEntry> = kanji
+        .iter()
+        .take(6)
+        .map(|item| WanikaniEntry {
+            kanji: item.character.clone(),
+            meaning: item.meaning.clone(),
+        })
+        .collect();
+
+    while entries.len() < 6 {
+        entries.push(WanikaniEntry {
+            kanji: "--".to_string(),
+            meaning: "(no pending reviews)".to_string(),
+        });
+    }
+
+    let weather_data = WeatherTemplateData {
         day_label: day_label.to_string(),
         datetime_label,
         condition: condition.to_string(),
@@ -552,9 +576,42 @@ fn build_widget_document(
         hourly_cards,
     };
 
+    let wanikani_data = WanikaniTemplateData { entries };
+
+    let template = DashboardTemplate {
+        width: dims.0,
+        height: dims.1,
+        weather_data,
+        wanikani_data,
+    };
+
     template
         .render()
         .expect("failed to render Typst widget template")
+}
+
+fn render_typst_document(typst_source: String) -> Result<Response, Response> {
+    let rgba =
+        render_widget(&typst_source, DASHBOARD_TEMPLATE, 2.0).map_err(internal_error_anyhow)?;
+    let grayscale: ImageBuffer<Luma<u8>, Vec<u8>> =
+        DynamicImage::ImageRgba8(rgba).into_luma8().into();
+
+    let mut bytes: Vec<u8> = Vec::new();
+    DynamicImage::ImageLuma8(grayscale)
+        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+        .map_err(internal_error)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("image/png"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store, max-age=0"),
+    );
+
+    Ok((headers, bytes).into_response())
 }
 
 fn internal_error<E: std::error::Error>(err: E) -> Response {
