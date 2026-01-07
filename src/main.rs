@@ -29,7 +29,6 @@ use crate::wanikani::{WanikaniClient, WanikaniKanji};
 
 const DEFAULT_KINDLE_WIDTH: u32 = 1072;
 const DEFAULT_KINDLE_HEIGHT: u32 = 1448;
-const TEMPLATE_ROOT: &str = "templates";
 const DASHBOARD_TEMPLATE: &str = "dashboard.typ";
 
 #[derive(Clone)]
@@ -595,7 +594,6 @@ fn render_typst_document(typst_source: String) -> Result<Response, Response> {
     let rgba = render_widget(
         &typst_source,
         DASHBOARD_TEMPLATE,
-        std::path::Path::new(TEMPLATE_ROOT),
         2.0,
     )
     .map_err(internal_error_anyhow)?;
